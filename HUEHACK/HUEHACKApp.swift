@@ -13,7 +13,7 @@ struct HUEHACKApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView3()
+            TestView()
                 .environment(\.managedObjectContext, persistenceController.container.viewContext)
         }
     }

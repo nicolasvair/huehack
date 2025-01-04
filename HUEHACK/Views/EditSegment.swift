@@ -40,27 +40,28 @@ struct EditSegment: View {
             DatePicker(selection: $pickerHourOut, displayedComponents: .hourAndMinute, label: { Text("End") })
                 .frame(width:200)
             
-            Text("Temp : \(Int(tempKelvins)) °K")
-                .padding()
-                .font(.title2)
-            
-//            Text("Temp : \(Int(tempMireds)) mireds")
-//                .padding()
-//                .font(.title2)
+            ZStack{
+                
+                Rectangle()
+                    .foregroundStyle(Color.init(mireds: tempMireds))
+                    .frame(height:150)
+                    .cornerRadius(15)
+                    .padding(.horizontal)
+                
+                Text("Temp : \(Int(tempKelvins)) °K")
+                    .padding()
+                    .font(.title2)
+                
+                //            Text("Temp : \(Int(tempMireds)) mireds")
+                //                .padding()
+                //                .font(.title2)
 
-            Rectangle()
-                .foregroundStyle(Color.init(mireds: tempMireds))
-                .frame(height:150)
-                .cornerRadius(15)
-                .padding(.horizontal)
-            
+            }
             Slider(value: $tempKelvins, in: 2000...5000)
-//                .scaleEffect(x: -1, y: 1, anchor: .center)
-//                .padding()
+                .padding()
                 .frame(height: 100)
                 .background(dégradéCouleur)
                 .cornerRadius(15)
-//                .padding(.horizontal)
                 .padding()
         }
         
@@ -99,12 +100,6 @@ struct EditSegment: View {
         }
 
 
-//        Picker(selection: $pickerHourIn) {
-//
-        
-//        } label: {
-//            Text("test")
-//        }
 
     }
 }
@@ -112,83 +107,6 @@ struct EditSegment: View {
 
 
 
-
-
-//struct EditSegment: View {
-//    
-//    @Binding var segment: Segment
-//    
-//    @State private var pickerHourIn = Date()
-//    @State private var pickerHourOut = Date()
-//    
-//    @State private var tempKelvins = 200.0
-//    @State private var tempMireds = 200.0
-//    
-//    var body: some View {
-//        
-//        VStack {
-//            
-//            Text(segment.name)
-//                .font(.title)
-//            
-//            DatePicker(selection: $pickerHourIn, displayedComponents: .hourAndMinute, label: { Text("Start") })
-//                .frame(width:200)
-//            
-//            DatePicker(selection: $pickerHourOut, displayedComponents: .hourAndMinute, label: { Text("End") })
-//                .frame(width:200)
-//            
-//            Text("Temp : \(Int(tempKelvins)) °K")
-//                .padding()
-//                .font(.title2)
-//            
-////            Text("Temp : \(Int(tempMireds)) mireds")
-////                .padding()
-////                .font(.title2)
-//
-//            Rectangle()
-//                .foregroundStyle(Color.init(mireds: tempMireds))
-//                .frame(height:150)
-//                .cornerRadius(15)
-//                .padding(.horizontal)
-//            
-//            Slider(value: $tempKelvins, in: 2000...5000)
-////                .scaleEffect(x: -1, y: 1, anchor: .center)
-////                .padding()
-//                .frame(height: 100)
-//                .background(dégradéCouleur)
-//                .cornerRadius(15)
-////                .padding(.horizontal)
-//                .padding()
-//        }
-//        
-//        
-//        .onAppear {
-//            if let hourInDate = Calendar.current.date(from: segment.hourIn) {
-//                pickerHourIn = hourInDate
-//            }
-////            if let hourInDate = Calendar.current.date(from: segment.hourOut) {
-////                pickerHourOut = hourInDate
-////            }
-//            
-//            tempKelvins = Double(1000000 / segment.temp)
-//        }
-//        .onChange(of: tempKelvins) {
-//            tempMireds = Double(1000000 / tempKelvins)
-//            segment.temp = Int(tempMireds)
-//        }
-//
-////        Picker(selection: $pickerHourIn) {
-////            <#code#>
-////        } label: {
-////            Text("test")
-////        }
-//
-//    }
-//}
-
-//#Preview {
-//    EditSegment(segment: .constant(defaultListOfSegments[0]))
-//}
 
 
 

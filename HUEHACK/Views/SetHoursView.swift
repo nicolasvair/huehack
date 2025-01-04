@@ -39,28 +39,6 @@ struct SetHoursView: View {
 
     var body: some View {
     
-//        Text("test")
-        
-//        ForEach(listOfSegments) { segment in
-//            Text(segment.name)
-//        }
-        
-//        List($listOfSegments) { $segment in
-//            NavigationLink {
-//                EditSegment(segment: $segment)
-//            } label: {
-//                HStack{
-//                    Text("\(String(segment.hourIn.hour!))h - \(segment.name) - \(segment.temp.miredsToKelvin) °K")
-//                    Spacer()
-//                    Rectangle()
-//                        .frame(width: 50)
-//                        .foregroundStyle(Color.init(mireds: Double(segment.temp)))
-//                        .padding()
-//                }
-//            }
-//
-//        }
-        
         
         List(listOfSegments.indices, id: \.self) { index in
             NavigationLink {

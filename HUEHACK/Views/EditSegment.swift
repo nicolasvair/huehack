@@ -67,16 +67,16 @@ struct EditSegment: View {
         
         
         .onAppear {
-            if let hourInDate = Calendar.current.date(from: listOfSegments[index].hourIn) {
+            if let hourInDate = Calendar.current.date(from: listOfSegments[index].hourStart) {
                 pickerHourIn = hourInDate
             }
             if listOfSegments.indices.contains(index+1) {
-                if let hourInDate = Calendar.current.date(from: listOfSegments[index + 1].hourIn) {
+                if let hourInDate = Calendar.current.date(from: listOfSegments[index + 1].hourStart) {
                     pickerHourOut = hourInDate
                 }
             }
             else {
-                if let hourInDate = Calendar.current.date(from: listOfSegments[0].hourIn) {
+                if let hourInDate = Calendar.current.date(from: listOfSegments[0].hourStart) {
                     pickerHourOut = hourInDate
                 }
             }
@@ -88,14 +88,14 @@ struct EditSegment: View {
             listOfSegments[index].temp = Int(tempMireds)
         }
         .onChange(of: pickerHourIn) {
-            listOfSegments[index].hourIn = Calendar.current.dateComponents([.hour, .minute], from: pickerHourIn)
+            listOfSegments[index].hourStart = Calendar.current.dateComponents([.hour, .minute], from: pickerHourIn)
         }
         .onChange(of: pickerHourOut) {
             if listOfSegments.indices.contains(index+1) {
-                listOfSegments[index+1].hourIn = Calendar.current.dateComponents([.hour, .minute], from: pickerHourOut)
+                listOfSegments[index+1].hourStart = Calendar.current.dateComponents([.hour, .minute], from: pickerHourOut)
             }
             else {
-                listOfSegments[0].hourIn = Calendar.current.dateComponents([.hour, .minute], from: pickerHourOut)
+                listOfSegments[0].hourStart = Calendar.current.dateComponents([.hour, .minute], from: pickerHourOut)
             }
         }
 

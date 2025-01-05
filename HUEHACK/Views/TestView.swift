@@ -38,38 +38,29 @@ var testSensorBody = """
 
 
 struct TestView: View {
-    
-    @State private var mainOnOff = true
-    
+        
     @State private var textShownToUser = ""
     
     
     
     var body: some View {
-
-        Toggle(isOn: $mainOnOff) {
-            Text("Main on/off")
-        }
-        .padding(80)
-
-        Button {
-            sendPairRequest(ip: ip) { response in
-                textShownToUser = response
-            }
-        } label: {
-            Text("Pairing request")
-                .padding()
-        }
-
     
         Button {
-            sendGETRequest(ip: ip, what: TypeWhat.sensors, which: nil) { response in
+            sendGETRequest(ip: ip, what: TypeWhat.sensors, which: String(1)) { response in
                 textShownToUser = response
             }
         } label: {
             Text("Get sensors")
                 .padding()
         }
+        
+        Button {
+            checkSensorsNb()
+        } label: {
+            Text("Check sensors")
+                .padding()
+        }
+
         
         Button {
             sendGETRequest(ip: ip, what: TypeWhat.rules, which: nil) { response in
@@ -79,6 +70,17 @@ struct TestView: View {
             Text("Get rules")
                 .padding()
         }
+        
+        Button {
+            checkRulesNb()
+//            sendGETRules(ip: ip, which: nil) { response in
+//                textShownToUser = response
+//            }
+        } label: {
+            Text("Check rules")
+                .padding()
+        }
+
         
         
         Button {
@@ -101,22 +103,12 @@ struct TestView: View {
 
         
         
-        Button {
-            sendPOSTRuleRequest(ip: ip, hourStart: 3, hourEnd: 4, temp:200) { response in
-                textShownToUser = response
-            }
-        } label: {
-            Text("Create rule")
-                .padding()
-        }
         
         
         Button {
-            sendDELETERequest(ip: ip, what: TypeWhat.rules, which: 9) { response in
-                textShownToUser = response
-            }
+            deleteAllHUEHACKRules{}
         } label: {
-            Text("Delete rule")
+            Text("Delete all HUEHACK rules")
                 .padding()
         }
 
@@ -132,7 +124,7 @@ struct TestView: View {
                 .padding()
         }
         .border(Color.gray, width: 1)
-        .frame(height: 400)
+//        .frame(height: 400)
         .padding(.horizontal)
 
 

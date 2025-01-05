@@ -129,11 +129,17 @@ func createRulesFromlistOfSegments(listOfSegments: [Segment]) {
         for indice in listOfSegments.indices {
             if listOfSegments.indices.contains(indice + 1) {
                 sendPOSTRuleRequest(ip: ip, start: listOfSegments[indice].hourStart, end: listOfSegments[indice + 1].hourStart, temp: listOfSegments[indice].temp, indexGroup: indexGroup, indexRègle: indice, indexTimer: indiceTimer, indexGobalOnOff: indiceGlobalOnOff) { response in
+//                    print(response)
                 }
             } else {
                 sendPOSTRuleRequest(ip: ip, start: listOfSegments[indice].hourStart, end: listOfSegments[0].hourStart, temp: listOfSegments[indice].temp, indexGroup: indexGroup, indexRègle: indice, indexTimer: indiceTimer, indexGobalOnOff: indiceGlobalOnOff) { response in
+//                    print(response)
                 }
             }
+        }
+        
+        sendPUTSensors(ip: ip, indexSensor: indexTimer, state: 0) { response in
+            print(response)
         }
     }
 }
@@ -152,8 +158,8 @@ func sendPOSTRuleRequest(ip: String, start: DateComponents, end: DateComponents,
     let hourStartString = String(format: "%02d", start.hour ?? 0)
     let minStartString = String(format: "%02d", start.minute ?? 0)
 
-    let hourEndString = String(format: "%02d", end.hour ?? 0  - 1)
-    let minEndString = "00" /*String(format: "%02d", end.minute ?? 0  - 1)*/
+    let hourEndString = String(format: "%02d", (end.hour ?? 0  - 1 + 24 ) % 24 )
+    let minEndString = String(format: "%02d", (end.minute ?? 0  - 1 + 60 ) % 60 )
 
     let body = """
     {

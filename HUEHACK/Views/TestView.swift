@@ -13,8 +13,6 @@ import SwiftUI
 // username":"MN07hphqoytdZ5mWmnEuXKknn8tfc27IXW5wVbkH"
 // clientkey":"E29C7C25BB209C9FB14B5157AC427AAC"
 
-var ip = "192.168.1.121"
-var username = "MN07hphqoytdZ5mWmnEuXKknn8tfc27IXW5wVbkH"
 
 var testSensorBody = """
         {

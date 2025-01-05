@@ -9,13 +9,18 @@
 import Foundation
 import SwiftUI
 
+var ip = "192.168.1.121"
+var username = "MN07hphqoytdZ5mWmnEuXKknn8tfc27IXW5wVbkH"
+
+var indexGlobalTimer = 171
+var indexTimer = 172
 
  var defaultListOfSegments = [
-    Segment(name: "Sunrise", hourStart: DateComponents.init(hour:8), temp: 300),
-    Segment(name: "Daylight", hourStart: DateComponents.init(hour:10), temp: 250),
-    Segment(name: "Sunset", hourStart: DateComponents.init(hour:17), temp: 300),
-    Segment(name: "Evening", hourStart: DateComponents.init(hour:20), temp: 350),
-    Segment(name: "Night", hourStart: DateComponents.init(hour:0), temp: 420)
+    Segment(name: "Sunrise", hourStart: DateComponents.init(hour:8, minute: 0), temp: 300),
+    Segment(name: "Daylight", hourStart: DateComponents.init(hour:10, minute: 0), temp: 250),
+    Segment(name: "Sunset", hourStart: DateComponents.init(hour:17, minute: 0), temp: 300),
+    Segment(name: "Evening", hourStart: DateComponents.init(hour:20, minute: 0), temp: 350),
+    Segment(name: "Night", hourStart: DateComponents.init(hour:0, minute: 0), temp: 420)
     ]
 
 
@@ -46,7 +51,7 @@ struct SetHoursView: View {
                 } label: {
                     HStack{
                         let segment = listOfSegments[index]
-                        Text("\(String(segment.hourStart.hour!))h - \(segment.name) - \(segment.temp.miredsToKelvin) °K")
+                        Text("\(String(segment.hourStart.hour!))h\(String(format: "%02d", segment.hourStart.minute!)) - \(segment.name) - \(segment.temp.miredsToKelvin) °K")
                         Spacer()
                         Rectangle()
                             .frame(width: 50)
@@ -64,6 +69,7 @@ struct SetHoursView: View {
                 
                 Button {
                     createRulesFromlistOfSegments(listOfSegments: listOfSegments)
+
                 } label: {
                     Text("Create rules")
                         .padding()
@@ -79,7 +85,10 @@ struct SetHoursView: View {
             }
         }
         .onChange(of: globalOnOff) { oldValue, newValue in
-
+            let state = globalOnOff ? 0 : 1
+            sendGlobalOnOff(ip: ip, indexGlobalOnOff: indexGlobalTimer, indexTimer: indexTimer, state: state) { response in
+                print(response)
+            }
         }
         
     }

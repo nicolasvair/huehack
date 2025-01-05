@@ -13,8 +13,10 @@ struct HUEHACKApp: App {
 
     var body: some Scene {
         WindowGroup {
-            TestView()
-                .environment(\.managedObjectContext, persistenceController.container.viewContext)
+            NavigationStack{
+                SetHoursView()
+                    .environment(\.managedObjectContext, persistenceController.container.viewContext)
+            }
         }
     }
 }

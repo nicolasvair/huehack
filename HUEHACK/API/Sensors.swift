@@ -150,10 +150,10 @@ func checkSensorsNb() -> [String: String] {
     
 
 
-
-/*
-func globalOnOff(ip: String, indexGlobalOnOff: Int, state: Int, completion: @escaping (String) -> Void) {
-    guard let url = URL(string: "http://\(ip)/api/\(username)/\(indexGlobalOnOff)/state/") else {
+func sendPUTSensors(ip: String, indexSensor: Int, state: Int, completion: @escaping (String) -> Void) {
+    
+    
+    guard let url = URL(string: "http://\(ip)/api/\(username)/sensors/\(indexSensor)/state/") else {
          print("Invalid URL")
         return
      }
@@ -161,10 +161,12 @@ func globalOnOff(ip: String, indexGlobalOnOff: Int, state: Int, completion: @esc
      var request = URLRequest(url: url)
      request.httpMethod = "PUT"
     
-    var body = ""
+    let body = """
+                {"status":\(state)}
+                """
     
     
-    if let jsonDataBody = body?.data(using: .utf8) {
+    if let jsonDataBody = body.data(using: .utf8) {
         request.httpBody = jsonDataBody
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     }
@@ -173,12 +175,30 @@ func globalOnOff(ip: String, indexGlobalOnOff: Int, state: Int, completion: @esc
 
      URLSession.shared.dataTask(with: request) { data, response2, error in
          if let error = error {
-             print("Error: \(error.localizedDescription)")
+//             print("Error: \(error.localizedDescription)")
              completion(error.localizedDescription)
          } else if let data = data, let responseString = String(data: data, encoding: .utf8) {
-             print("Response: \(responseString)")
+//             print("Response: \(responseString)")
              completion(responseString)
          }
      }.resume()
  }
-*/
+
+
+
+
+
+
+
+
+
+func sendGlobalOnOff(ip: String, indexGlobalOnOff: Int, indexTimer: Int, state: Int, completion: @escaping (String) -> Void) {
+    
+    sendPUTSensors(ip: ip, indexSensor: indexGlobalOnOff, state: state) { response in
+        print(response)
+    }
+    sendPUTSensors(ip: ip, indexSensor: indexTimer, state: 0) { response in
+        print(response)
+    }
+ }
+

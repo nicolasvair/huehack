@@ -17,10 +17,10 @@ let dégradéCouleur = LinearGradient(gradient: Gradient(colors: [Color.orange, 
 struct EditSegment: View {
     
     @State var lastRequestTime: Date = Date()
-
+    
     @State var index: Int
     @Binding var listOfSegments: [Segment]
-
+    
     @State private var pickerHourIn = Date()
     @State private var pickerHourOut = Date()
     
@@ -31,7 +31,7 @@ struct EditSegment: View {
     
     var body: some View {
         
-//        var segment = listOfSegments[index]
+        //        var segment = listOfSegments[index]
         
         VStack {
             
@@ -55,28 +55,26 @@ struct EditSegment: View {
                 Text("Temp : \(Int(tempKelvins)) °K")
                     .padding()
                     .font(.title2)
-                
-                //            Text("Temp : \(Int(tempMireds)) mireds")
-                //                .padding()
-                //                .font(.title2)
-
+                                
             }
             
             Slider(value: $tempKelvins, in: 2000...5000, onEditingChanged: { bool in
                 if bool {
                     sliderIsEditing = true
-                    }
+                    sendGlobalOnOff(ip: ip, indexGlobalOnOff: indexGlobalOnOff, indexTimer: indexTimer, state: 1) { response in print(response) }
+                }
                 else {
                     sliderIsEditing = false
+                    sendGlobalOnOff(ip: ip, indexGlobalOnOff: indexGlobalOnOff, indexTimer: indexTimer, state: 0) { response in print(response) }
                 }
             })
-                .padding()
-                .frame(height: 100)
-                .background(dégradéCouleur)
-                .cornerRadius(15)
-                .padding()
-                
-            }
+            .padding()
+            .frame(height: 100)
+            .background(dégradéCouleur)
+            .cornerRadius(15)
+            .padding()
+            
+        }
         
         
         .onAppear {
@@ -125,9 +123,9 @@ struct EditSegment: View {
                 listOfSegments[0].synced = .notSynced
             }
         }
-
-
-
+        
+        
+        
     }
 }
 

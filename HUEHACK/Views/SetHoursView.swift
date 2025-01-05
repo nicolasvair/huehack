@@ -12,7 +12,7 @@ import SwiftUI
 var ip = "192.168.1.121"
 var username = "MN07hphqoytdZ5mWmnEuXKknn8tfc27IXW5wVbkH"
 
-var indexGlobalTimer = 171
+var indexGlobalOnOff = 171
 var indexTimer = 172
 
 
@@ -147,7 +147,7 @@ struct SetHoursView: View {
             }
             
             Button {
-                sendPUTGroupRequest(ip: ip, groupIndex: 81, ct: 400) { response in
+                sendGlobalOnOff(ip: ip, indexGlobalOnOff: indexGlobalOnOff, indexTimer: indexTimer, state: 1) { response in
                     print(response)
                 }
             } label: {
@@ -191,7 +191,7 @@ struct SetHoursView: View {
         }
         .onChange(of: globalOnOff) { oldValue, newValue in
             let state = globalOnOff ? 0 : 1
-            sendGlobalOnOff(ip: ip, indexGlobalOnOff: indexGlobalTimer, indexTimer: indexTimer, state: state) { response in
+            sendGlobalOnOff(ip: ip, indexGlobalOnOff: indexGlobalOnOff, indexTimer: indexTimer, state: state) { response in
                 print(response)
             }
         }

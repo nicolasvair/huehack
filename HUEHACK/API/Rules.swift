@@ -120,11 +120,11 @@ func sendGETRules(ip: String, which: String?, completion: @escaping ([String: Ru
     }.resume()
 }
 
-func createRulesFromlistOfSegments(listOfSegments: [Segment]) {
-    deleteAllHUEHACKRules {
+func createRulesFromlistOfSegments(listOfSegments: [Segment], indexGroup: Int) {
+    deleteAllHUEHACKRulesForGroup(indexGroup: indexGroup) {
+        // WORK ICI
         let indiceGlobalOnOff = 171
         let indiceTimer = 172
-        let indexGroup = 2
 
         for indice in listOfSegments.indices {
             if listOfSegments.indices.contains(indice + 1) {
@@ -160,10 +160,14 @@ func sendPOSTRuleRequest(ip: String, start: DateComponents, end: DateComponents,
 
     let hourEndString = String(format: "%02d", (end.hour ?? 0  - 1 + 24 ) % 24 )
     let minEndString = String(format: "%02d", (end.minute ?? 0  - 1 + 60 ) % 60 )
+    
+    let indexGroupString = String(format: "%02d", indexGroup)
+    let indexRègleString = String(format: "%02d", indexRègle)
+    
 
     let body = """
     {
-            "name": "HUEHACK-\(indexGroup)-\(indexRègle)",
+            "name": "HUEHACK-\(indexGroupString)-\(indexRègleString)",
             "conditions": [
                 {
                     "address": "/sensors/\(indexTimer)/state/lastupdated",
@@ -221,21 +225,18 @@ func sendPOSTRuleRequest(ip: String, start: DateComponents, end: DateComponents,
 
 
 
-func checkRulesNb() -> [String: String] {
+func checkRulesIndex() -> [String: String] {
     var results: [String: String] = [:]
 
     sendGETRules(ip: ip, which: nil) { response in
         for rulesTuple in response {
             if rulesTuple.1.name.prefix(7) == "HUEHACK" {
                 let name = String(rulesTuple.1.name.dropFirst(10))
-                print("\(name) - \(rulesTuple.0)")
-
-                // WORK HERE
                 
-//                if name == "TIMER" || name == "GLOBAL ONOFF" {
-//                    results[name] = rulesTuple.0
-//                    print("\(name) - \(rulesTuple.0)")
-//                }
+                if name == "TIMER" || name == "GLOBAL ONOFF" {
+                    results[name] = rulesTuple.0
+                    print("\(name) - \(rulesTuple.0)")
+                }
             }
         }
         
@@ -243,6 +244,26 @@ func checkRulesNb() -> [String: String] {
     }
     return results
 }
+
+func getRulesAndFilterByGroup(group: Int, completion: @escaping ([String: Rule]) -> Void) {
+    var results: [String: Rule] = [:]
+
+    sendGETRules(ip: ip, which: nil) { response in
+        for rulesTuple in response {
+            if rulesTuple.1.name.prefix(7) == "HUEHACK" {
+                let name = String(rulesTuple.1.name.dropFirst(8))
+//                print(name)
+                if name.prefix(2) == String(format: "%02d", group){
+//                    print(rulesTuple.1.name)
+                    results[rulesTuple.0] = rulesTuple.1
+                }
+            }
+        }
+        completion(results)
+//        print("Rules nb : \(results)")
+    }
+}
+
 
 
 
@@ -269,5 +290,79 @@ func deleteAllHUEHACKRules(completion: @escaping () -> Void) {
         group.notify(queue: .main) {
             completion()
         }
+    }
+}
+
+
+func deleteAllHUEHACKRulesForGroup(indexGroup: Int, completion: @escaping () -> Void) {
+    var indexesOfHUEHACKRules = [String]()
+
+    sendGETRules(ip: ip, which: nil) { response in
+        for rulesTuple in response {
+            if rulesTuple.1.name.prefix(7) == "HUEHACK" {
+                if rulesTuple.1.name.dropFirst(8).prefix(2) == String(format: "%02d", indexGroup) {
+//                    print(rulesTuple.1.name.dropFirst(8).prefix(2))
+                    indexesOfHUEHACKRules.append(rulesTuple.0)
+                }
+            }
+        }
+
+        let group = DispatchGroup()
+
+        for index in indexesOfHUEHACKRules {
+            group.enter() // Entrer dans le groupe
+            sendDELETERequest(ip: ip, what: TypeWhat.rules, which: Int(index)!) { _ in
+                group.leave() // Quitter le groupe une fois la requête terminée
+            }
+        }
+
+        // Appeler le `completion` une fois que toutes les suppressions sont terminées
+        group.notify(queue: .main) {
+            completion()
+        }
+    }
+}
+
+
+func segmentFromRule(rule: Rule) -> Segment? {
+    
+    let name = String(rule.name.dropFirst(8))
+    
+    if let time = rule.conditions![1].value {
+        
+        let timeFormatted = time.split(separator: "/")[0].dropFirst(1).split(separator: ":")
+        let hourStart = DateComponents(hour: Int(timeFormatted[0]) ?? 0, minute: Int(timeFormatted[1]) ?? 0)
+//        print(dateComponents)
+        
+        if let temp = rule.actions![1].body.ct {
+            return Segment(name: name, hourStart: hourStart, temp: temp, synced: .synced)
+        }
+    }
+    
+    return nil
+}
+
+
+
+
+
+
+func getSegmentFromRulesForGroup(selectedGroupIndex: Int, completion: @escaping ([Segment]) -> Void) {
+    
+    getRulesAndFilterByGroup(group: selectedGroupIndex) { filteredRules in
+                
+        var listOfSegmentsTemp = [Segment]()
+        
+        for rule in filteredRules {
+            if let segment = segmentFromRule(rule: rule.1) {
+                listOfSegmentsTemp.append(segment)
+            }
+        }
+        
+        // Tri des segments et déplacement du premier à la fin
+            listOfSegmentsTemp = listOfSegmentsTemp.sorted { $0.hourStart.hour! < $1.hourStart.hour! }
+            listOfSegmentsTemp.append(listOfSegmentsTemp.removeFirst())
+        
+        completion(listOfSegmentsTemp)
     }
 }

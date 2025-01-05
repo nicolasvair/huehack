@@ -16,6 +16,8 @@ let dégradéCouleur = LinearGradient(gradient: Gradient(colors: [Color.orange, 
 
 struct EditSegment: View {
     
+    @State var lastRequestTime: Date = Date()
+
     @State var index: Int
     @Binding var listOfSegments: [Segment]
 
@@ -24,6 +26,8 @@ struct EditSegment: View {
     
     @State private var tempKelvins = 200.0
     @State private var tempMireds = 200.0
+    
+    @State private var sliderIsEditing = false
     
     var body: some View {
         
@@ -57,13 +61,22 @@ struct EditSegment: View {
                 //                .font(.title2)
 
             }
-            Slider(value: $tempKelvins, in: 2000...5000)
+            
+            Slider(value: $tempKelvins, in: 2000...5000, onEditingChanged: { bool in
+                if bool {
+                    sliderIsEditing = true
+                    }
+                else {
+                    sliderIsEditing = false
+                }
+            })
                 .padding()
                 .frame(height: 100)
                 .background(dégradéCouleur)
                 .cornerRadius(15)
                 .padding()
-        }
+                
+            }
         
         
         .onAppear {
@@ -83,19 +96,33 @@ struct EditSegment: View {
             
             tempKelvins = Double(1000000 / listOfSegments[index].temp)
         }
-        .onChange(of: tempKelvins) {
+        .onChange(of: tempKelvins) { oldValue, newValue in
             tempMireds = Double(1000000 / tempKelvins)
             listOfSegments[index].temp = Int(tempMireds)
+            listOfSegments[index].synced = .notSynced
+            
+            if sliderIsEditing {
+                let currentTime = Date()
+                if currentTime.timeIntervalSince(lastRequestTime) > 0.5 {
+                    lastRequestTime = currentTime
+                    let temp = Int(1000000 / newValue)
+                    sendPUTGroupRequest(ip: ip, groupIndex: 81, ct: temp) { response in
+                    }
+                }
+            }
         }
-        .onChange(of: pickerHourIn) {
+        .onChange(of: pickerHourIn) { oldValue, newValue in
             listOfSegments[index].hourStart = Calendar.current.dateComponents([.hour, .minute], from: pickerHourIn)
+            listOfSegments[index].synced = .notSynced
         }
-        .onChange(of: pickerHourOut) {
+        .onChange(of: pickerHourOut) { oldValue, newValue in
             if listOfSegments.indices.contains(index+1) {
                 listOfSegments[index+1].hourStart = Calendar.current.dateComponents([.hour, .minute], from: pickerHourOut)
+                listOfSegments[index+1].synced = .notSynced
             }
             else {
                 listOfSegments[0].hourStart = Calendar.current.dateComponents([.hour, .minute], from: pickerHourOut)
+                listOfSegments[0].synced = .notSynced
             }
         }
 

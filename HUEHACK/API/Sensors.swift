@@ -45,8 +45,6 @@ func decodeOneSensorResponse(jsonData: Data) -> Sensor? {
     }
 }
 
-
-
 func decodeSensorsResponse(jsonData: Data) -> [String:Sensor]? {
 //    print(String(data: jsonData, encoding: .utf8) ?? "Invalid UTF-8 data")
     
@@ -61,11 +59,6 @@ func decodeSensorsResponse(jsonData: Data) -> [String:Sensor]? {
         return [:]
     }
 }
-
-
-
-
-
 
 
 
@@ -183,12 +176,6 @@ func sendPUTSensors(ip: String, indexSensor: Int, state: Int, completion: @escap
          }
      }.resume()
  }
-
-
-
-
-
-
 
 
 

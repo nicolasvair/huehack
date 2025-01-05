@@ -60,26 +60,6 @@ struct TestView: View {
         }
 
         
-        Button {
-            sendGETRequest(ip: ip, what: TypeWhat.rules, which: nil) { response in
-                textShownToUser = response
-            }
-        } label: {
-            Text("Get rules")
-                .padding()
-        }
-        
-        Button {
-            checkRulesNb()
-//            sendGETRules(ip: ip, which: nil) { response in
-//                textShownToUser = response
-//            }
-        } label: {
-            Text("Check rules")
-                .padding()
-        }
-
-        
         
         Button {
             sendPOSTRequest(ip: ip, what: TypeWhat.sensors, body: testSensorBody) { response in
@@ -99,6 +79,36 @@ struct TestView: View {
                 .padding()
         }
 
+        
+        
+        Button {
+            sendGETRequest(ip: ip, what: TypeWhat.rules, which: nil) { response in
+                textShownToUser = response
+            }
+        } label: {
+            Text("Get rules")
+                .padding()
+        }
+        
+        Button {
+            checkRulesIndex()
+//            sendGETRules(ip: ip, which: nil) { response in
+//                textShownToUser = response
+//            }
+        } label: {
+            Text("Check rules")
+                .padding()
+        }
+        
+        
+        Button {
+            sendGETGroups(ip: ip, which: nil) { response in
+//                print(response)
+            }
+        } label: {
+            Text("Get groups")
+                .padding()
+        }
         
         
         

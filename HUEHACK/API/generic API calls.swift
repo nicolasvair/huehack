@@ -118,6 +118,9 @@ func sendPOSTRequest(ip: String, what: TypeWhat, body: String?, completion: @esc
 
 
 
+
+
+
 func sendDELETERequest(ip: String, what: TypeWhat, which: Int, completion: @escaping (String) -> Void) {
     guard let url = URL(string: "http://\(ip)/api/\(username)/\(what.rawValue)/\(which)") else {
         print("Invalid URL")

@@ -133,10 +133,10 @@ func sendDELETERequest(ip: String, what: TypeWhat, which: Int, completion: @esca
     
     URLSession.shared.dataTask(with: request) { data, response, error in
         if let error = error {
-            print("Error: \(error.localizedDescription)")
+//            print("Error: \(error.localizedDescription)")
             completion(error.localizedDescription)
         } else if let data = data, let responseString = String(data: data, encoding: .utf8) {
-            print("Response: \(responseString)")
+//            print("Response: \(responseString)")
             completion(responseString)
         } else {
             completion("Unknown error")

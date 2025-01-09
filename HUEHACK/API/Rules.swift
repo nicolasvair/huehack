@@ -120,30 +120,95 @@ func sendGETRules(ip: String, which: String?, completion: @escaping ([String: Ru
     }.resume()
 }
 
-func createRulesFromlistOfSegments(listOfSegments: [Segment], indexGroup: Int) {
+
+// ICI
+/*
+func createRulesFromlistOfSegments(listOfSegments: [Segment], indexGroup: Int, completion: @escaping ([String]) -> Void) {
     deleteAllHUEHACKRulesForGroup(indexGroup: indexGroup) {
-        // WORK ICI
         let indiceGlobalOnOff = 171
         let indiceTimer = 172
+        var responsesFromPost = [String]()
+        let dispatchGroup = DispatchGroup()
 
         for indice in listOfSegments.indices {
-            if listOfSegments.indices.contains(indice + 1) {
-                sendPOSTRuleRequest(ip: ip, start: listOfSegments[indice].hourStart, end: listOfSegments[indice + 1].hourStart, temp: listOfSegments[indice].temp, indexGroup: indexGroup, indexRègle: indice, indexTimer: indiceTimer, indexGobalOnOff: indiceGlobalOnOff) { response in
-//                    print(response)
-                }
-            } else {
-                sendPOSTRuleRequest(ip: ip, start: listOfSegments[indice].hourStart, end: listOfSegments[0].hourStart, temp: listOfSegments[indice].temp, indexGroup: indexGroup, indexRègle: indice, indexTimer: indiceTimer, indexGobalOnOff: indiceGlobalOnOff) { response in
-//                    print(response)
-                }
+            dispatchGroup.enter()
+            let nextIndex = (indice + 1) % listOfSegments.count
+            sendPOSTRuleRequest(ip: ip,
+                                 start: listOfSegments[indice].hourStart,
+                                 end: listOfSegments[nextIndex].hourStart,
+                                 temp: listOfSegments[indice].temp,
+                                 indexGroup: indexGroup,
+                                 indexRègle: indice,
+                                 indexTimer: indiceTimer,
+                                 indexGobalOnOff: indiceGlobalOnOff) { response in
+                responsesFromPost.append(response)
+                dispatchGroup.leave()
             }
         }
-        
-        sendPUTSensors(ip: ip, indexSensor: indexTimer, state: 0) { response in
-            print(response)
+
+        dispatchGroup.notify(queue: .main) {
+            sendPUTSensors(ip: ip, indexSensor: indiceTimer, state: 0) { response in
+                print(response)
+            }
+            completion(responsesFromPost)
+        }
+    }
+}
+ */
+
+func createRulesFromlistOfSegments(listOfSegments: [Segment], indexGroup: Int, completion: @escaping (String) -> Void) {
+    deleteAllHUEHACKRulesForGroup(indexGroup: indexGroup) {
+        let indiceGlobalOnOff = 171
+        let indiceTimer = 172
+        var responsesFromPost = [String]()
+        let dispatchGroup = DispatchGroup()
+
+        for indice in listOfSegments.indices {
+            dispatchGroup.enter()
+            let nextIndex = (indice + 1) % listOfSegments.count
+            sendPOSTRuleRequest(ip: ip,
+                                 start: listOfSegments[indice].hourStart,
+                                 end: listOfSegments[nextIndex].hourStart,
+                                 temp: listOfSegments[indice].temp,
+                                 indexGroup: indexGroup,
+                                 indexRègle: indice,
+                                 indexTimer: indiceTimer,
+                                 indexGobalOnOff: indiceGlobalOnOff) { response in
+                responsesFromPost.append(response)
+                dispatchGroup.leave()
+            }
+        }
+
+        dispatchGroup.notify(queue: .main) {
+            // Analyze responses
+            var errors = [String]()
+            for response in responsesFromPost {
+                if !response.contains("\"success\"") {
+                    if let id = extractID(from: response) {
+                        errors.append(id)
+                    } else {
+                        errors.append("Unknown ID")
+                    }
+                }
+            }
+
+            if errors.isEmpty {
+                completion("All rules were correctly sent")
+            } else {
+                completion("Error at IDs: \(errors.joined(separator: ", "))")
+            }
         }
     }
 }
 
+// Helper function to extract the ID from the response
+private func extractID(from response: String) -> String? {
+    if let startRange = response.range(of: "\"id\":\""),
+       let endRange = response[startRange.upperBound...].range(of: "\"") {
+        return String(response[startRange.upperBound..<endRange.lowerBound])
+    }
+    return nil
+}
 
 func sendPOSTRuleRequest(ip: String, start: DateComponents, end: DateComponents, temp: Int, indexGroup:Int, indexRègle: Int, indexTimer: Int, indexGobalOnOff: Int, completion: @escaping (String) -> Void) {
     guard let url = URL(string: "http://\(ip)/api/\(username)/rules") else {
@@ -171,7 +236,7 @@ func sendPOSTRuleRequest(ip: String, start: DateComponents, end: DateComponents,
     let indexGroupString = String(format: "%02d", indexGroup)
     let indexRègleString = String(format: "%02d", indexRègle)
     
-    print("group : \(indexGroupString) - index : \(indexRègleString) - start : \(hourStartString):\(minStartString):00 - end : \(hourEndString):\(minEndString):59 ")
+//    print("group : \(indexGroupString) - index : \(indexRègleString) - start : \(hourStartString):\(minStartString):00 - end : \(hourEndString):\(minEndString):59 ")
 
     let body = """
     {
@@ -222,10 +287,10 @@ func sendPOSTRuleRequest(ip: String, start: DateComponents, end: DateComponents,
 
      URLSession.shared.dataTask(with: request) { data, response2, error in
          if let error = error {
-             print("Error: \(error.localizedDescription)")
+//             print("Error: \(error.localizedDescription)")
              completion(error.localizedDescription)
          } else if let data = data, let responseString = String(data: data, encoding: .utf8) {
-             print("Response: \(responseString)")
+//             print("Response: \(responseString)")
              completion(responseString)
          }
      }.resume()
@@ -391,7 +456,12 @@ func createSegmentForNow(listOfSegments: inout [Segment]) {
     
     listOfSegmentsTemp = listOfSegments + [newSegment]
     
-    listOfSegmentsTemp = listOfSegmentsTemp.sorted{ $0.hourStart.hour! < $1.hourStart.hour! }
+    listOfSegmentsTemp = listOfSegmentsTemp.sorted {
+        if $0.hourStart.hour! == $1.hourStart.hour! {
+            return $0.hourStart.minute! < $1.hourStart.minute!
+        }
+        return $0.hourStart.hour! < $1.hourStart.hour!
+    }
     listOfSegmentsTemp.append(listOfSegmentsTemp.removeFirst())
     
     listOfSegments = listOfSegmentsTemp
@@ -412,8 +482,13 @@ func getSegmentFromRulesForGroup(selectedGroupIndex: Int, completion: @escaping 
         }
         
         // Tri des segments et déplacement du premier à la fin
-            listOfSegmentsTemp = listOfSegmentsTemp.sorted { $0.hourStart.hour! < $1.hourStart.hour! }
-            listOfSegmentsTemp.append(listOfSegmentsTemp.removeFirst())
+        listOfSegmentsTemp = listOfSegmentsTemp.sorted {
+            if $0.hourStart.hour! == $1.hourStart.hour! {
+                return $0.hourStart.minute! < $1.hourStart.minute!
+            }
+            return $0.hourStart.hour! < $1.hourStart.hour!
+        }
+        listOfSegmentsTemp.append(listOfSegmentsTemp.removeFirst())
         
         completion(listOfSegmentsTemp)
     }

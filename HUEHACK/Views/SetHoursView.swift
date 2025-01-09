@@ -34,13 +34,15 @@ enum Synced {
 
 struct SetHoursView: View {
     
-    @State private var nbOfSegments = 5
     @State var listOfSegments = [Segment]()
     @State var firstAppear = true
     @State var globalOnOff = true
     @State var groupsIndices = ["A", "B", "C"]
     @State var groups = [String : RoomResponse]()
     @State var selectedGroupIndex = "select a group"
+    
+    @State private var showAlert = false
+    @State private var alertMessage = "Something went wrong!"
     
     var body: some View {
         
@@ -96,7 +98,6 @@ struct SetHoursView: View {
                         groups = response
                         getSegmentFromRulesForGroup(selectedGroupIndex: Int(selectedGroupIndex)!){ response in
                             listOfSegments = response
-                            nbOfSegments = listOfSegments.count
                         }
                     }
                 }
@@ -127,7 +128,6 @@ struct SetHoursView: View {
                         groups = response
                         getSegmentFromRulesForGroup(selectedGroupIndex: Int(selectedGroupIndex)!) { response in
                             listOfSegments = response
-                            nbOfSegments = listOfSegments.count
                         }
                     }
                 }
@@ -139,60 +139,18 @@ struct SetHoursView: View {
         }
 
 
-        
-        HStack{
-            
-            Button {
-                listOfSegments = defaultListOfSegments
-                nbOfSegments = 5
-            } label: {
-                Text("Default for ")
-            }
-            
-            Stepper(value: $nbOfSegments, in: 1...10) {
-                HStack {
-                    Text(String(nbOfSegments))
-                    Text("Segments")
-                }
-            }
-            .frame(width:210)
-            .padding(.horizontal)
-            .onChange(of: nbOfSegments) { oldValue, newValue in
-                switch newValue {
-                case 1:
-                    listOfSegments = list1
-                case 2:
-                    listOfSegments = list2
-                case 3:
-                    listOfSegments = list3
-                case 4:
-                    listOfSegments = list4
-                case 5:
-                    listOfSegments = list5
-                case 6:
-                    listOfSegments = list6
-                case 7:
-                    listOfSegments = list7
-                case 8:
-                    listOfSegments = list8
-                case 9:
-                    listOfSegments = list9
-                case 10:
-                    listOfSegments = list10
-                default:
-                    listOfSegments = defaultListOfSegments // Une liste vide si `nbOfSegments` est en dehors des valeurs attendues
-                }
-            }
-
-        }
         HStack{
             Toggle(isOn: $globalOnOff) {
                 Text("HUEHACK")
             }
             .frame(width:140)
             
-            Button {
-                createRulesFromlistOfSegments(listOfSegments: listOfSegments, indexGroup: Int(selectedGroupIndex)!)
+            Button {                
+                createRulesFromlistOfSegments(listOfSegments: listOfSegments, indexGroup: Int(selectedGroupIndex)!) { responses in
+//                    print(responses)
+                    alertMessage = responses
+                    showAlert = true
+                }
                 
             } label: {
                 HStack{
@@ -204,6 +162,7 @@ struct SetHoursView: View {
             }
             
         }
+
         .onAppear {
             if firstAppear {
 //                listOfSegments = defaultListOfSegments
@@ -223,6 +182,11 @@ struct SetHoursView: View {
             sendGlobalOnOff(ip: ip, indexGlobalOnOff: indexGlobalOnOff, indexTimer: indexTimer, state: state) { response in
                 print(response)
             }
+        }
+        .alert("Response from bridge", isPresented: $showAlert) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(alertMessage)
         }
 
         

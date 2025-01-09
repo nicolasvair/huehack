@@ -158,12 +158,20 @@ func sendPOSTRuleRequest(ip: String, start: DateComponents, end: DateComponents,
     let hourStartString = String(format: "%02d", start.hour ?? 0)
     let minStartString = String(format: "%02d", start.minute ?? 0)
 
-    let hourEndString = String(format: "%02d", (end.hour ?? 0  - 1 + 24 ) % 24 )
-    let minEndString = String(format: "%02d", (end.minute ?? 0  - 1 + 60 ) % 60 )
+    var hourEndString = ""
+    if end.minute == 0 {
+        hourEndString = String(format: "%02d", ( (end.hour ?? 0) - 1 + 24 ) % 24 )
+    }
+    else {
+        hourEndString = String(format: "%02d", ( (end.hour ?? 0) + 24 ) % 24 )
+    }
+    
+    let minEndString = String(format: "%02d", ((end.minute ?? 0)  - 1 + 60 ) % 60 )
     
     let indexGroupString = String(format: "%02d", indexGroup)
     let indexRègleString = String(format: "%02d", indexRègle)
     
+    print("group : \(indexGroupString) - index : \(indexRègleString) - start : \(hourStartString):\(minStartString):00 - end : \(hourEndString):\(minEndString):59 ")
 
     let body = """
     {
@@ -344,6 +352,50 @@ func segmentFromRule(rule: Rule) -> Segment? {
 
 
 
+func createSegmentFor(listOfSegments: [Segment], time: DateComponents) {
+    // TO BE CONTINUED
+}
+
+func createSegmentForNow(listOfSegments: inout [Segment]) {
+    let now = Calendar.current.dateComponents([.hour, .minute], from: Date())
+    
+    var currentTemp = 200
+    
+    var listOfSegmentsTemp = listOfSegments
+    
+//    listOfSegmentsTemp = listOfSegmentsTemp.sorted{ $0.hourStart.hour! < $1.hourStart.hour! }
+    
+    for i in listOfSegments.indices {
+        
+        if listOfSegments.indices.contains(i+1) {
+            
+            if let hour1 = listOfSegments[i].hourStart.hour, let minute1 = listOfSegments[i].hourStart.minute, let hour2 = listOfSegments[i+1].hourStart.hour, let minute2 = listOfSegments[i+1].hourStart.minute, let hourNow = now.hour, let minuteNow = now.minute, (hour1, minute1) < (hourNow, minuteNow) && (hourNow, minuteNow) < (hour2, minute2)  {
+                
+                print("now entre \(listOfSegments[i].hourStart) et \(listOfSegments[i+1].hourStart)")
+                
+                currentTemp = listOfSegments[i].temp
+            }
+        }
+        else {
+            if let hour1 = listOfSegments[i].hourStart.hour, let minute1 = listOfSegments[i].hourStart.minute, let hour2 = listOfSegments[0].hourStart.hour, let minute2 = listOfSegments[0].hourStart.minute, let hourNow = now.hour, let minuteNow = now.minute, (hour1, minute1) < (hourNow, minuteNow) && (hourNow, minuteNow) < (hour2, minute2) {
+                
+                print("now entre \(listOfSegments[i].hourStart) et \(listOfSegments[0].hourStart)")
+                
+                currentTemp = listOfSegments[i].temp
+            }
+
+        }
+    }
+    
+    let newSegment = Segment(name: "", hourStart: now, temp: currentTemp, synced: .notSynced)
+    
+    listOfSegmentsTemp = listOfSegments + [newSegment]
+    
+    listOfSegmentsTemp = listOfSegmentsTemp.sorted{ $0.hourStart.hour! < $1.hourStart.hour! }
+    listOfSegmentsTemp.append(listOfSegmentsTemp.removeFirst())
+    
+    listOfSegments = listOfSegmentsTemp
+}
 
 
 

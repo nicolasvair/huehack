@@ -66,20 +66,27 @@ struct SetHoursView: View {
             
             
             if let selectedGroup = groups[selectedGroupIndex] {
-                List(listOfSegments.indices, id: \.self) { index in
-                    NavigationLink {
-                        EditSegment(index: index, listOfSegments: $listOfSegments)
-                    } label: {
-                        HStack{
-                            let segment = listOfSegments[index]
-                            Text("\(String(segment.hourStart.hour!))h\(String(format: "%02d", segment.hourStart.minute!)) - \(segment.temp.miredsToKelvin) °K")
-                                .italic(segment.synced == .synced ? false : true)
-                                .fontWeight(segment.synced == .synced ? .regular : .light)
-                            Spacer()
-                            Rectangle()
-                                .frame(width: 50)
-                                .foregroundStyle(Color.init(mireds: Double(segment.temp)))
-                                .padding()
+                List {
+                    ForEach(listOfSegments.indices, id: \.self) { index in
+                        NavigationLink {
+                            EditSegment(index: index, listOfSegments: $listOfSegments)
+                        } label: {
+                            HStack {
+                                let segment = listOfSegments[index]
+                                Text("\(String(segment.hourStart.hour!))h\(String(format: "%02d", segment.hourStart.minute!)) - \(segment.temp.miredsToKelvin) °K")
+                                    .italic(segment.synced == .synced ? false : true)
+                                    .fontWeight(segment.synced == .synced ? .regular : .light)
+                                Spacer()
+                                Rectangle()
+                                    .frame(width: 50)
+                                    .foregroundStyle(Color(mireds: Double(segment.temp)))
+                                    .padding()
+                            }
+                        }
+                    }
+                    .onDelete { offsets in
+                        for index in offsets {
+                            listOfSegments.remove(at: index)
                         }
                     }
                 }
@@ -104,6 +111,43 @@ struct SetHoursView: View {
         Spacer()
         
         HStack{
+            Button {
+                createSegmentForNow(listOfSegments: &listOfSegments)
+            } label: {
+                Text("Create Segment for Now")
+            }
+            .padding(.horizontal)
+            
+            Spacer()
+            
+            Button {
+                Task {
+                    await sendGETGroups(ip: ip, which: nil) { response in
+                        groupsIndices = response.map { $0.key }
+                        groups = response
+                        getSegmentFromRulesForGroup(selectedGroupIndex: Int(selectedGroupIndex)!) { response in
+                            listOfSegments = response
+                            nbOfSegments = listOfSegments.count
+                        }
+                    }
+                }
+            } label: {
+                Text("Cancel")
+            }
+            .padding(.horizontal)
+            
+        }
+
+
+        
+        HStack{
+            
+            Button {
+                listOfSegments = defaultListOfSegments
+                nbOfSegments = 5
+            } label: {
+                Text("Default for ")
+            }
             
             Stepper(value: $nbOfSegments, in: 1...10) {
                 HStack {
@@ -139,21 +183,6 @@ struct SetHoursView: View {
                     listOfSegments = defaultListOfSegments // Une liste vide si `nbOfSegments` est en dehors des valeurs attendues
                 }
             }
-            Button {
-                listOfSegments = defaultListOfSegments
-                nbOfSegments = 5
-            } label: {
-                Text("Default")
-            }
-            
-            Button {
-                sendGlobalOnOff(ip: ip, indexGlobalOnOff: indexGlobalOnOff, indexTimer: indexTimer, state: 1) { response in
-                    print(response)
-                }
-            } label: {
-                Text("test")
-            }
-
 
         }
         HStack{

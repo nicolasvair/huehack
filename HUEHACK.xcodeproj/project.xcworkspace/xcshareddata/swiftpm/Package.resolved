@@ -1,0 +1,15 @@
+{
+  "originHash" : "8024448a23854b720599242eb1e47abed782caf45fa942947c79f473e59e996a",
+  "pins" : [
+    {
+      "identity" : "suncalc#",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/Timac/SunCalc#",
+      "state" : {
+        "revision" : "72931128f7f55fbf95d403ee7f02d263b8f62946",
+        "version" : "1.0.0"
+      }
+    }
+  ],
+  "version" : 3
+}

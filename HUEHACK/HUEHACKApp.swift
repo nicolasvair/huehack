@@ -16,6 +16,7 @@ struct HUEHACKApp: App {
             NavigationStack{
                 SetHoursView()
                     .environment(\.managedObjectContext, persistenceController.container.viewContext)
+//                SunPositionView()
             }
         }
     }

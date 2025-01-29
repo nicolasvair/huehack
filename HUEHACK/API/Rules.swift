@@ -238,6 +238,9 @@ func sendPOSTRuleRequest(ip: String, start: DateComponents, end: DateComponents,
     
 //    print("group : \(indexGroupString) - index : \(indexRègleString) - start : \(hourStartString):\(minStartString):00 - end : \(hourEndString):\(minEndString):59 ")
 
+    
+    // old value
+    /*
     let body = """
     {
             "name": "HUEHACK-\(indexGroupString)-\(indexRègleString)",
@@ -276,6 +279,45 @@ func sendPOSTRuleRequest(ip: String, start: DateComponents, end: DateComponents,
             ]
         }
     """
+     */
+    
+    
+    
+    // new value
+    // should add som sort of initializer for the 
+    
+    let body = """
+    {
+            "name": "HUEHACK-\(indexGroupString)-\(indexRègleString)",
+            "conditions": [
+                {
+                    "address": "/sensors/\(indexTimer)/state/lastupdated",
+                    "operator": "ddx",
+                    "value": "PT00:00:05"
+                },
+                {
+                    "address": "/config/localtime",
+                    "operator": "in",
+                    "value": "T\(hourStartString):\(minStartString):00/T\(hourEndString):\(minEndString):59"
+                },
+                {
+                    "address": "/sensors/\(indexGobalOnOff)/state/status",
+                    "operator": "eq",
+                    "value": "0"
+                }
+            ],
+            "actions": [
+                {
+                    "address": "/groups/\(indexGroup)/action",
+                    "method": "PUT",
+                    "body": {
+                        "ct": \(temp)
+                    }
+                }
+            ]
+        }
+    """
+     
 
     
     if let jsonDataBody = body.data(using: .utf8) {
@@ -407,7 +449,7 @@ func segmentFromRule(rule: Rule) -> Segment? {
         let hourStart = DateComponents(hour: Int(timeFormatted[0]) ?? 0, minute: Int(timeFormatted[1]) ?? 0)
 //        print(dateComponents)
         
-        if let temp = rule.actions![1].body.ct {
+        if let temp = rule.actions![0].body.ct {
             return Segment(name: name, hourStart: hourStart, temp: temp, synced: .synced)
         }
     }

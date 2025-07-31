@@ -1,85 +1,81 @@
-
 //
-//  JSON Pairing.swift
+//  Pairing.swift
 //  HUEHACK
 //
-//  Created by Nicolas Vair on 04/01/2025.
+//  Created by Nicolas Vair on 01/08/2025.
 //
 
 import Foundation
 
-struct ErrorResponse: Codable {
-    let error: ErrorDetail?
-    let success: SuccessDetail?
-}
+class BridgePairingManager: ObservableObject {
+    @Published var status: Status = .idle
+    @Published var message: String = ""
 
-struct ErrorDetail: Codable {
-    let type: Int
-    let address: String
-    let description: String
-}
-
-struct SuccessDetail: Codable {
-    let username: String
-    let clientkey: String
-}
-
-
-func sendPairRequest(ip: String, completion: @escaping (String) -> Void) {
-    guard let url = URL(string: "http://\(ip)/api/") else {
-        print("Invalid URL")
-        return
+    enum Status {
+        case idle, inProgress, success, error
     }
 
-    var request = URLRequest(url: url)
-    request.httpMethod = "POST"
-    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    request.httpBody = """
-    {
-        "devicetype": "vair#HUEHACK>",
-    "generateclientkey":true
+    private let ipKey = "BridgeIP"
+    private let usernameKey = "BridgeUsername"
+
+    var hueBridgeIP: String? {
+        get { UserDefaults.standard.string(forKey: "hueBridgeIP") }
     }
-    """.data(using: .utf8)
 
-    URLSession.shared.dataTask(with: request) { data, response, error in
-        if let error = error {
-            print("Error: \(error.localizedDescription)")
-//                response = error.localizedDescription
-        } else if let data = data, let responseString = String(data: data, encoding: .utf8) {
-            
-            var result = ""
-            
-            // Convertir la chaîne JSON en Data
-            if let jsonData = responseString.data(using: .utf8) {
-                do {
-                    // Décoder les données JSON
-                    let responses = try JSONDecoder().decode([ErrorResponse].self, from: jsonData)
-                    
-                    // Extraire la description du premier élément
-                    if let firstResponse = responses.first {
-                        if let description = firstResponse.error?.description {
-                            print("Description pour l'utilisateur : \(description)")
-                            result = description
-                        }
-                        else if let username = firstResponse.success?.username {
-                            print("Succès ! username : \(username)")
-                            result = username
-                        }
+    var storedUsername: String? {
+        get { UserDefaults.standard.string(forKey: usernameKey) }
+        set { UserDefaults.standard.set(newValue, forKey: usernameKey) }
+    }
 
-                    }
-                } catch {
-                    print("Erreur lors du décodage JSON : \(error)")
-                }
-            } else {
-                print("Erreur : Impossible de convertir la chaîne JSON en Data.")
-            }
-            
-            
-            
-            print("Response: \(responseString)")
-//                response = responseString
-            completion(result)
+    func pairWithBridge(ip: String) {
+        guard let url = URL(string: "http://\(ip)/api") else {
+            self.status = .error
+            self.message = "URL invalide"
+            return
         }
-    }.resume()
-}
 
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = """
+        {
+            "devicetype":"my_hue_app#ios",
+            "generateclientkey": true
+        }
+        """.data(using: .utf8)
+
+        self.status = .inProgress
+        self.message = "Pairing en cours..."
+
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            DispatchQueue.main.async {
+                if let error = error {
+                    self.status = .error
+                    self.message = "Erreur réseau : \(error.localizedDescription)"
+                    return
+                }
+
+                guard let data = data,
+                      let jsonArray = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+                      let first = jsonArray.first else {
+                    self.status = .error
+                    self.message = "Réponse invalide"
+                    return
+                }
+
+                if let errorDict = first["error"] as? [String: Any],
+                   let desc = errorDict["description"] as? String {
+                    self.status = .error
+                    self.message = desc
+                } else if let successDict = first["success"] as? [String: Any],
+                          let username = successDict["username"] as? String {
+                    self.status = .success
+                    self.message = "Succès !"
+                    self.storedUsername = username
+                } else {
+                    self.status = .error
+                    self.message = "Réponse inattendue"
+                }
+            }
+        }.resume()
+    }
+}

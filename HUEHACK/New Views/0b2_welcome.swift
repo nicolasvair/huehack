@@ -6,6 +6,7 @@
 //
 
 
+// ajouter le pairing
 
 // besoin de la fonction pour tout save (rules / autom / tout tout tout sur le bridge)
 // donner un nom à la sauvegarde
@@ -15,7 +16,7 @@
 
 import SwiftUI
 
-struct _b_welcome: View {
+struct _b2_welcome: View {
     
     @State private var configIsSaved = false
     
@@ -24,7 +25,7 @@ struct _b_welcome: View {
         ZStack{
             
             VStack{
-                Text("First, let's save your current configuration so you can revert back if needed")
+                Text("Then, let's save your current configuration so you can revert back if needed")
                     .padding()
                 
                 HStack{
@@ -62,5 +63,5 @@ struct _b_welcome: View {
 }
 
 #Preview {
-    _b_welcome()
+    _b2_welcome()
 }

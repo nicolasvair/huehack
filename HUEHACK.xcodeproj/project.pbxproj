@@ -14,9 +14,22 @@
 		DAB75C2C2D28B21B0072F8D5 /* HUEHACK.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HUEHACK.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		DABCE4AC2E3C28DE00E50511 /* Exceptions for "HUEHACK" folder in "HUEHACK" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = DAB75C2B2D28B21B0072F8D5 /* HUEHACK */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		DAB75C2E2D28B21B0072F8D5 /* HUEHACK */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				DABCE4AC2E3C28DE00E50511 /* Exceptions for "HUEHACK" folder in "HUEHACK" target */,
+			);
 			path = HUEHACK;
 			sourceTree = "<group>";
 		};
@@ -189,6 +202,8 @@
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
+				NSBonjourServices = "_hue._tcp, _services._dns-sd._udp";
+				NSLocalNetworkUsageDescription = "Cette application détecte les ponts Hue sur votre réseau local.";
 				ONLY_ACTIVE_ARCH = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -244,6 +259,8 @@
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
+				NSBonjourServices = "_hue._tcp, _services._dns-sd._udp";
+				NSLocalNetworkUsageDescription = "Cette application détecte les ponts Hue sur votre réseau local.";
 				SWIFT_COMPILATION_MODE = wholemodule;
 			};
 			name = Release;
@@ -261,6 +278,8 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = HUEHACK/Info.plist;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Exploration du réseau local pour découvrir des services mDNS.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "We need your location to calculate sunrise and sunset times";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
@@ -277,6 +296,8 @@
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 14.5;
 				MARKETING_VERSION = 1.0;
+				NSBonjourServices = "_services._dns-sd._udp, _hue._tcp";
+				NSLocalNetworkUsageDescription = "Cette application détecte les ponts Hue sur votre réseau local.";
 				PRODUCT_BUNDLE_IDENTIFIER = vair.HUEHACK;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
@@ -301,6 +322,8 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = HUEHACK/Info.plist;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Exploration du réseau local pour découvrir des services mDNS.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "We need your location to calculate sunrise and sunset times";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
@@ -317,6 +340,8 @@
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 14.5;
 				MARKETING_VERSION = 1.0;
+				NSBonjourServices = "_services._dns-sd._udp, _hue._tcp";
+				NSLocalNetworkUsageDescription = "Cette application détecte les ponts Hue sur votre réseau local.";
 				PRODUCT_BUNDLE_IDENTIFIER = vair.HUEHACK;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;

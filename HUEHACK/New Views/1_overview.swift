@@ -5,6 +5,9 @@
 //  Created by Nicolas Vair on 09/04/2025.
 //
 
+// ajouter capture d'un état, d'une scène et tester combinaison avec autres applis
+
+
 import SwiftUI
 
 struct __overview: View {

@@ -14,8 +14,13 @@
 // gérer première arrivée = fill rules
 // gérer la suite = show rules et adapt
 
+// GET LIST OF SEGMENTS FROM BRIDGE
+// CHOOSE ROOMS // LIGHTS
+
 // POUR SORTIE
 // ajouter sous-vue pour localisation, gérer les autorisations etc
+// show update colors ou update sun hours only if changement
+// check localisation auto ??
 
 // POUR + TARD
 // pouvoir ajouter créneaux "manuels" 
@@ -79,6 +84,7 @@ struct __rules: View {
                             
                             if(segment.synced != .synced){
                                 Image(systemName: "slider.horizontal.below.sun.max")
+                                    .foregroundStyle(segment.synced == .notSynced ? .updateColors : .black)
                             }
                             
                             if isEditing {
@@ -100,7 +106,6 @@ struct __rules: View {
                                             .italic()
                                             .strikethrough()
                                         Image(systemName: "arrowshape.right")
-//                                        Image(systemName: "clock.arrow.trianglehead.2.counterclockwise.rotate.90")
                                         Text("\(String(segment.hourStart.hour!))h\(String(format: "%02d", segment.hourStart.minute!))")
                                     }
                                     .foregroundColor(.sunHours)
@@ -113,6 +118,7 @@ struct __rules: View {
                             }
                             .italic(segment.synced == .synced ? false : true)
                             .fontWeight(segment.synced == .synced ? .regular : .light)
+                            .foregroundStyle(segment.synced == .notSynced ? .updateColors : .black)
                             
                             Spacer()
                             
@@ -135,16 +141,10 @@ struct __rules: View {
                 }
             }
             .onAppear {
-                locationManager.latitude = 48.866669
-                locationManager.longitude = 2.43333       //base value in case of following command doesn't work
                 locationManager.getSingleLocation()
                 
                 listOfSegments = fillListOfSegmentsWrongHour(locationManager: locationManager)
-                
-//                listOfSegments += [ Segment(name: "coucher", hourStart: DateComponents.init(hour: 23 , minute: 0), temp: 420, synced: .notSynced, show: true) ]
-                
-                //            listOfSegments = listOfSegments.sorted { $0.hourStart.hour! < $1.hourStart.hour! }
-                
+                                
                 listOfSegments = listOfSegments.sorted { ($0.hourStart.hour! < 3 ? 24 + $0.hourStart.hour! : $0.hourStart.hour!) < ($1.hourStart.hour! < 3 ? 24 + $1.hourStart.hour! : $1.hourStart.hour!) }
                 
                 locationManager.fetchCityName()
@@ -153,13 +153,15 @@ struct __rules: View {
             VStack{
                 Spacer()
                 HStack{
-                    //                    Button_With_Icon(text: "send to bridge", icon: "square.and.arrow.up")
-                    Button_With_Icon(text: "update colors", icon: "slider.horizontal.below.sun.max")
                     Spacer()
-                    Button_With_Icon(text: "update sun hours", icon: "clock.arrow.trianglehead.2.counterclockwise.rotate.90")
-                        .foregroundStyle(.sunHours)
-                    // clock.arrow.trianglehead.2.counterclockwise.rotate.90
-                    // slider.horizontal.below.sun.max
+                    if(listOfSegments.contains(where: {$0.synced == .notSynced}) ) {
+                        Button_With_Icon(text: "update colors", icon: "slider.horizontal.below.sun.max")
+                            .foregroundStyle(.updateColors)
+                    }
+                    if(listOfSegments.contains(where: {$0.hourChanged == true}) ) {
+                        Button_With_Icon(text: "update sun hours", icon: "clock.arrow.trianglehead.2.counterclockwise.rotate.90")
+                            .foregroundStyle(.sunHours)
+                    }
                 }
             }
             .padding()
@@ -229,7 +231,7 @@ func fillListOfSegmentsWrongHour(locationManager: LocationManager) -> [Segment] 
 
     listOfSegments += [ Segment(name: "goldenHour", hourStart: Calendar.current.dateComponents([.hour, .minute], from: timeOfSun.goldenHour!), temp: 250, synced: .notSynced, show: true) ]
 
-    listOfSegments += [ Segment(name: "sunsetStart", hourStart: Calendar.current.dateComponents([.hour, .minute], from: timeOfSun.sunsetStart!), temp: 280, synced: .notSynced, show: true) ]
+    listOfSegments += [ Segment(name: "sunsetStart", hourStart: Calendar.current.dateComponents([.hour, .minute], from: timeOfSun.sunsetStart!), temp: 280, synced: .notSynced, show: true, hourChanged: true) ]
 
     listOfSegments += [ Segment(name: "dusk", hourStart: Calendar.current.dateComponents([.hour, .minute], from: timeOfSun.dusk!), temp: 290, synced: .synced, show: true) ]
     

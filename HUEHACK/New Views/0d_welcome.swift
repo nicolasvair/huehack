@@ -9,6 +9,7 @@
 
 // choisir une room, toutes les lights de la room sont sélectionnées, on peut les déselectionner
 // ou bien choisir les lights directement ? à voir selon format exploration, au + simple
+// MAYBE LIMITER AU DÉBUT À SOIT ROOM SOIT LIGHTS SÉPARÉES
 
 
 

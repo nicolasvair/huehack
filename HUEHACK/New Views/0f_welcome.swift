@@ -1,110 +1,63 @@
 //
-//  SunPositionView.swift
+//  0e_welcome.swift
 //  HUEHACK
 //
-//  Created by Nicolas Vair on 10/01/2025.
+//  Created by Nicolas Vair on 31/07/2025.
 //
 
 import SwiftUI
-
 import SunCalc
-import Foundation
-import CoreLocation
 
-
-/*
-class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
-//    private var locationManager = CLLocationManager()
-//    
-//    @Published var latitude = 0.0
-//    @Published var longitude = 0.0
-//    @Published var cityName: String?
-//    
-//    override init() {
-//        super.init()
-//        locationManager.delegate = self
-//        locationManager.requestWhenInUseAuthorization()
-//        locationManager.startUpdatingLocation()
-//    }
-//    func getSingleLocation() {
-//        locationManager.requestLocation() // Request location once
-//        print()
-//    }
-//
-//    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-//        guard let location = locations.first else { return }
-//        self.latitude = location.coordinate.latitude
-//        self.longitude = location.coordinate.longitude
-//    }
-//    
-//    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-//        print("Failed to find user's location: \(error.localizedDescription)")
-//    }
-//    
-//    
-//    func fetchCityName() {
-//        let location = CLLocation(latitude: self.latitude, longitude: self.longitude)
-//        let geocoder = CLGeocoder()
-//        
-//        geocoder.reverseGeocodeLocation(location) { placemarks, error in
-//            if let error = error {
-//                print("Reverse geocode failed: \(error.localizedDescription)")
-//                return
-//            }
-//            
-//            if let city = placemarks?.first?.locality {
-//                DispatchQueue.main.async {
-//                    self.cityName = city
-//                    print("City name found: \(city)")
-//                }
-//            } else {
-//                print("City not found")
-//            }
-//        }
-//    }
-//
-//}
-*/
-
-
-
-struct SunPositionView: View {
+struct _f_welcome: View {
     
     let date = Date()
+    
     @StateObject private var locationManager = LocationManager()
-        
+    
     @State private var listOfSegments = [Segment]()
-
+    
     @State private var isEditing = false
     
+    
     var body: some View {
-            
+        
         HStack{
-            Button {
-                locationManager.fetchCityName()
-            } label: {
-                Image(systemName: "location.square.fill")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(height:25)
-//                    .foregroundStyle(locationManager.cityName == "" ? .gray : .blue)
-            }
+            
+            HStack{
+                Text("Sun hours for : ")
+                    
+                    Button {
+                        locationManager.fetchCityName()
+                    } label: {
+                        Group{
+                            Text(locationManager.cityName ?? "Locate me !")
+                            Image(systemName: "scope")
+                        }
+                        .foregroundStyle(.accent)
+                    }
 
-            Text("Localisation : \(locationManager.cityName ?? "not found")")
+            }
+            .padding(.horizontal)
+            
             Spacer()
+                        
             Button(isEditing ? "Done" : "Edit") {
                 isEditing.toggle()
             }
+            .padding(.horizontal)
         }
-        .padding()
-
         
-        List {
-            ForEach(listOfSegments.indices, id: \.self) { index in
+        ZStack{
+            List {
+                ForEach(listOfSegments.indices, id: \.self) { index in
                     let segment = listOfSegments[index]
                     
-                if segment.show! || isEditing {
+                    if segment.show! || isEditing {
                         HStack {
+                            
+//                            if(segment.synced != .synced){
+//                                Image(systemName: "slider.horizontal.below.sun.max")
+//                            }
                             
                             if isEditing {
                                 Button(action: {
@@ -114,16 +67,18 @@ struct SunPositionView: View {
                                         .foregroundColor(.blue)
                                 }
                             }
-
                             
                             VStack(alignment: .leading){
                                 Text("\(segment.name)")
                                 
                                 Text("\(String(segment.hourStart.hour!))h\(String(format: "%02d", segment.hourStart.minute!))")
+                                
                             }
                             .italic(segment.synced == .synced ? false : true)
                             .fontWeight(segment.synced == .synced ? .regular : .light)
+                            
                             Spacer()
+                            
                             
                             
                             Text("\(segment.temp.miredsToKelvin) °K")
@@ -134,48 +89,52 @@ struct SunPositionView: View {
                                 .foregroundStyle(Color(mireds: Double(segment.temp)))
                                 .padding(7)
                             
-
+                            
                         }
                         
-
+                        
                     }
-                
+                    
+                }
             }
+            .onAppear {
+//                locationManager.latitude = 48.866669
+//                locationManager.longitude = 2.43333       //base value in case of following command doesn't work
+                locationManager.getSingleLocation()
+                
+                listOfSegments = fillListOfSegmentsInit(locationManager: locationManager)
+                                
+                listOfSegments = listOfSegments.sorted { ($0.hourStart.hour! < 3 ? 24 + $0.hourStart.hour! : $0.hourStart.hour!) < ($1.hourStart.hour! < 3 ? 24 + $1.hourStart.hour! : $1.hourStart.hour!) }
+                
+                locationManager.fetchCityName()
+            }
+            
+            VStack{
+                Spacer()
+                HStack{
+                    Spacer()
+                    Button_With_Icon(text: "send to bridge", icon: "arrowshape.right")
+                }
+            }
+            .padding()
         }
-
-        .onAppear {
-            locationManager.latitude = 48.866669
-            locationManager.longitude = 2.43333       //base value in case of following command doesn't work
-            locationManager.getSingleLocation()
-
-            listOfSegments = fillListOfSegments(locationManager: locationManager)
-            
-            listOfSegments += [ Segment(name: "coucher", hourStart: DateComponents.init(hour: 23 , minute: 0), temp: 420, synced: .notSynced, show: true) ]
-            
-//            listOfSegments = listOfSegments.sorted { $0.hourStart.hour! < $1.hourStart.hour! }
-            
-            listOfSegments = listOfSegments.sorted { ($0.hourStart.hour! < 3 ? 24 + $0.hourStart.hour! : $0.hourStart.hour!) < ($1.hourStart.hour! < 3 ? 24 + $1.hourStart.hour! : $1.hourStart.hour!) }
-            
-            locationManager.fetchCityName()
-        }
-
-
-
+        
         
     }
+    
 }
-
 
 #Preview {
-    SunPositionView()
+    _f_welcome()
 }
 
 
 
 
 
-/*
-func fillListOfSegments(locationManager: LocationManager) -> [Segment] {
+
+
+func fillListOfSegmentsInit(locationManager: LocationManager) -> [Segment] {
     
     let timeOfSun = SunCalc.getTimes(date: Date(), latitude: locationManager.latitude, longitude: locationManager.longitude)
     
@@ -206,4 +165,3 @@ func fillListOfSegments(locationManager: LocationManager) -> [Segment] {
 
     return listOfSegments
 }
-*/

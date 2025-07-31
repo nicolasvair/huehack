@@ -124,7 +124,7 @@ struct SetHoursView: View {
             Spacer()
             
             NavigationLink {
-                SunPositionView()
+//                SunPositionView()
             } label: {
                 Text("Default")
             }

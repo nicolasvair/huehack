@@ -25,6 +25,7 @@ struct Segment: Identifiable {
     var hourStart: DateComponents // Représente uniquement l'heure et les minutes
     var temp: Int
     var synced: Synced
+    var show: Bool?
 }
 
 enum Synced {
@@ -115,10 +116,19 @@ struct SetHoursView: View {
             Button {
                 createSegmentForNow(listOfSegments: &listOfSegments)
             } label: {
-                Text("Create Segment for Now")
+                Text("Create Segment")
             }
             .padding(.horizontal)
             
+            Spacer()
+            
+            NavigationLink {
+                SunPositionView()
+            } label: {
+                Text("Default")
+            }
+            .padding(.horizontal)
+
             Spacer()
             
             Button {

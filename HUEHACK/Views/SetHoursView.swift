@@ -26,6 +26,7 @@ struct Segment: Identifiable {
     var temp: Int
     var synced: Synced
     var show: Bool?
+    var hourChanged: Bool = false
 }
 
 enum Synced {

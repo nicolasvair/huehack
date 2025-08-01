@@ -14,9 +14,8 @@ struct HUEHACKApp: App {
     var body: some Scene {
         WindowGroup {
             NavigationStack{
-                _b1_welcome()
+                _b2_welcome()
                     .environment(\.managedObjectContext, persistenceController.container.viewContext)
-//                SunPositionView()
             }
         }
     }

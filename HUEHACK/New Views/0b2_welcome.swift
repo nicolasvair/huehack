@@ -18,8 +18,8 @@ import SwiftUI
 
 struct _b2_welcome: View {
     
-    @State private var configIsSaved = false
-    
+    @StateObject var apiManager = HueAPIManager()
+            
     var body: some View {
         
         ZStack{
@@ -30,22 +30,117 @@ struct _b2_welcome: View {
                 
                 HStack{
                     Button {
-                        
-                        // add function to save rules / sensors etc, evrything on the hub
-                        configIsSaved.toggle()
-                        
+                        apiManager.sendGET(what: .sensors, which: nil)
                     } label: {
-                        Text("save current configuration")
+                        Text("save sensors")
                             .foregroundStyle(.white)
                             .padding()
                             .background(.blue)
                             .cornerRadius(15)
                     }
                     
-                    BoolToImg(value:configIsSaved)
+                    Button {
+                        apiManager.sendGET(what: .rules, which: nil)
+                    } label: {
+                        Text("save rules")
+                            .foregroundStyle(.white)
+                            .padding()
+                            .background(.blue)
+                            .cornerRadius(15)
+                    }
+
+                    Button {
+                        apiManager.sendGET(what: .lights, which: nil)
+                    } label: {
+                        Text("save lights")
+                            .foregroundStyle(.white)
+                            .padding()
+                            .background(.blue)
+                            .cornerRadius(15)
+                    }
+                }
+                .frame(height: 40)
+
+                
+                HStack{
+                    Button {
+                        apiManager.sendGET(what: .groups, which: nil)
+                    } label: {
+                        Text("save groups")
+                            .foregroundStyle(.white)
+                            .padding()
+                            .background(.blue)
+                            .cornerRadius(15)
+                    }
+
+                    Button {
+                        apiManager.sendGET(what: .config, which: nil)
+                    } label: {
+                        Text("save config")
+                            .foregroundStyle(.white)
+                            .padding()
+                            .background(.blue)
+                            .cornerRadius(15)
+                    }
+
+                    Button {
+                        apiManager.sendGET(what: .schedules, which: nil)
+                    } label: {
+                        Text("save schedules")
+                            .foregroundStyle(.white)
+                            .padding()
+                            .background(.blue)
+                            .cornerRadius(15)
+                    }
+
+                    
+//                    BoolToImg(value:configIsSaved)
                     
                 }
                 .frame(height: 40)
+                
+                
+                HStack{
+                    Button {
+                        apiManager.sendGET(what: .scenes, which: nil)
+                    } label: {
+                        Text("save scenes")
+                            .foregroundStyle(.white)
+                            .padding()
+                            .background(.blue)
+                            .cornerRadius(15)
+                    }
+
+                    Button {
+                        apiManager.sendGET(what: .resourcelinks, which: nil)
+                    } label: {
+                        Text("save resourcelinks")
+                            .foregroundStyle(.white)
+                            .padding()
+                            .background(.blue)
+                            .cornerRadius(15)
+                    }
+                    
+                    Button {
+                        apiManager.sendGETall()
+                    } label: {
+                        Text("save all")
+                            .foregroundStyle(.white)
+                            .padding()
+                            .background(.blue)
+                            .cornerRadius(15)
+                    }
+
+                    
+//                    BoolToImg(value:configIsSaved)
+                    
+                }
+                .frame(height: 40)
+
+                
+                ScrollView{
+                    Text("response :  \(apiManager.data)")
+                }
             }
             
             VStack{

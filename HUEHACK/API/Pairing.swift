@@ -23,8 +23,8 @@ class BridgePairingManager: ObservableObject {
     }
 
     var storedUsername: String? {
-        get { UserDefaults.standard.string(forKey: usernameKey) }
-        set { UserDefaults.standard.set(newValue, forKey: usernameKey) }
+        get { UserDefaults.standard.string(forKey: "usernameKey") }
+        set { UserDefaults.standard.set(newValue, forKey: "usernameKey") }
     }
 
     func pairWithBridge(ip: String) {

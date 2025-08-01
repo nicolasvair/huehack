@@ -6,17 +6,17 @@
 //
 import Foundation
 
-enum TypeRequest: String {
-    case GET = "GET"
-    case POST = "POST"
-    case PUT = "PUT"
-    case DELETE = "DELETE"
-}
-
-enum TypeWhat: String {
-    case sensors = "sensors"
-    case rules = "rules"
-}
+//enum TypeRequest: String {
+//    case GET = "GET"
+//    case POST = "POST"
+//    case PUT = "PUT"
+//    case DELETE = "DELETE"
+//}
+//
+//enum TypeWhat: String {
+//    case sensors = "sensors"
+//    case rules = "rules"
+//}
 
 
 
@@ -50,7 +50,7 @@ enum TypeWhat: String {
 
 
 
-func sendGETRequest(ip: String, what: TypeWhat?, which: String?, completion: @escaping (String) -> Void) {
+func sendGETRequest(ip: String, username: String, what: TypeWhat?, which: String?, completion: @escaping (String) -> Void) {
     guard let url = URL(string: "http://\(ip)/api/\(username)/\(what?.rawValue ?? "")/\(which ?? "")") else {
         print("Invalid URL")
         completion("Invalid URL")
@@ -67,6 +67,7 @@ func sendGETRequest(ip: String, what: TypeWhat?, which: String?, completion: @es
         }
         else if let data = data {
             if let result = String(data: data, encoding: .utf8){
+                print(result)
                 completion(result)
             }
         }

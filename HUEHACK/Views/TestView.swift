@@ -39,14 +39,17 @@ struct TestView: View {
         
     @State private var textShownToUser = ""
     
+    let ip = UserDefaults.standard.string(forKey: "hueBridgeIP")
+    let username = UserDefaults.standard.string(forKey: "usernameKey")
+    
     
     
     var body: some View {
     
         Button {
-            sendGETRequest(ip: ip, what: TypeWhat.sensors, which: String(1)) { response in
-                textShownToUser = response
-            }
+//            sendGETRequest(ip: ip!, username: username!, what: TypeWhat.sensors, which: String(1)) { response in
+//                textShownToUser = response
+//            }
         } label: {
             Text("Get sensors")
                 .padding()
@@ -62,7 +65,7 @@ struct TestView: View {
         
         
         Button {
-            sendPOSTRequest(ip: ip, what: TypeWhat.sensors, body: testSensorBody) { response in
+            sendPOSTRequest(ip: ip!, what: TypeWhat.sensors, body: testSensorBody) { response in
                 textShownToUser = response
             }
         } label: {
@@ -71,7 +74,7 @@ struct TestView: View {
         }
         
         Button {
-            sendDELETERequest(ip: ip, what: TypeWhat.sensors, which: 174) { response in
+            sendDELETERequest(ip: ip!, what: TypeWhat.sensors, which: 174) { response in
                 textShownToUser = response
             }
         } label: {
@@ -82,9 +85,9 @@ struct TestView: View {
         
         
         Button {
-            sendGETRequest(ip: ip, what: TypeWhat.rules, which: nil) { response in
-                textShownToUser = response
-            }
+//            sendGETRequest(ip: ip!, what: TypeWhat.rules, which: nil) { response in
+//                textShownToUser = response
+//            }
         } label: {
             Text("Get rules")
                 .padding()
@@ -102,9 +105,9 @@ struct TestView: View {
         
         
         Button {
-            sendGETGroups(ip: ip, which: nil) { response in
-//                print(response)
-            }
+//            sendGETGroups(ip: ip, which: nil) { response in
+////                print(response)
+//            }
         } label: {
             Text("Get groups")
                 .padding()

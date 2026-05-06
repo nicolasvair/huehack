@@ -9,11 +9,25 @@
 import Foundation
 import SwiftUI
 
-var ip = "192.168.1.121"
-var username = "MN07hphqoytdZ5mWmnEuXKknn8tfc27IXW5wVbkH"
+var ip: String {
+    get { AppConfig.shared.ip }
+    set { AppConfig.shared.ip = newValue }
+}
 
-var indexGlobalOnOff = 171
-var indexTimer = 172
+var username: String {
+    get { AppConfig.shared.username }
+    set { AppConfig.shared.username = newValue }
+}
+
+var indexGlobalOnOff: Int {
+    get { AppConfig.shared.indexGlobalOnOff }
+    set { AppConfig.shared.indexGlobalOnOff = newValue }
+}
+
+var indexTimer: Int {
+    get { AppConfig.shared.indexTimer }
+    set { AppConfig.shared.indexTimer = newValue }
+}
 
 
 

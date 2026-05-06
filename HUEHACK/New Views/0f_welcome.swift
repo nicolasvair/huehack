@@ -1,5 +1,5 @@
 //
-//  0e_welcome.swift
+//  0f_welcome.swift
 //  HUEHACK
 //
 //  Created by Nicolas Vair on 31/07/2025.
@@ -9,159 +9,167 @@ import SwiftUI
 import SunCalc
 
 struct _f_welcome: View {
-    
-    let date = Date()
-    
-    @StateObject private var locationManager = LocationManager()
-    
-    @State private var listOfSegments = [Segment]()
-    
-    @State private var isEditing = false
-    
-    
-    var body: some View {
-        
-        HStack{
-            
-            HStack{
-                Text("Sun hours for : ")
-                    
-                    Button {
-                        locationManager.fetchCityName()
-                    } label: {
-                        Group{
-                            Text(locationManager.cityName ?? "Locate me !")
-                            Image(systemName: "scope")
-                        }
-                        .foregroundStyle(.accent)
-                    }
 
+    @StateObject private var locationManager = LocationManager()
+    @State private var listOfSegments = [Segment]()
+    @State private var isEditing = false
+    @State private var groups = [String: RoomResponse]()
+    @State private var groupsIndices = [String]()
+    @State private var selectedGroupIndex = ""
+    @State private var sendStatus: SendStatus = .idle
+    @State private var message = ""
+
+    enum SendStatus { case idle, inProgress, success, failure }
+
+    var body: some View {
+        HStack {
+            HStack {
+                Text("Sun hours for : ")
+                Button {
+                    locationManager.getSingleLocation()
+                    locationManager.fetchCityName()
+                    listOfSegments = fillListOfSegmentsInit(locationManager: locationManager)
+                    listOfSegments = sortedSegments(listOfSegments)
+                } label: {
+                    Group {
+                        Text(locationManager.cityName ?? "Locate me !")
+                        Image(systemName: "scope")
+                    }
+                    .foregroundStyle(.accent)
+                }
             }
             .padding(.horizontal)
-            
+
             Spacer()
-                        
+
             Button(isEditing ? "Done" : "Edit") {
                 isEditing.toggle()
             }
             .padding(.horizontal)
         }
-        
-        ZStack{
+
+        if !groupsIndices.isEmpty {
+            Picker("Groupe", selection: $selectedGroupIndex) {
+                ForEach(groupsIndices.sorted(), id: \.self) { idx in
+                    Text(groups[idx]?.name ?? idx).tag(idx)
+                }
+            }
+            .pickerStyle(.menu)
+            .padding(.horizontal)
+        }
+
+        ZStack {
             List {
                 ForEach(listOfSegments.indices, id: \.self) { index in
                     let segment = listOfSegments[index]
-                    
                     if segment.show! || isEditing {
                         HStack {
-                            
-//                            if(segment.synced != .synced){
-//                                Image(systemName: "slider.horizontal.below.sun.max")
-//                            }
-                            
                             if isEditing {
-                                Button(action: {
+                                Button {
                                     listOfSegments[index].show?.toggle()
-                                }) {
+                                } label: {
                                     Image(systemName: listOfSegments[index].show! ? "checkmark.circle.fill" : "circle")
                                         .foregroundColor(.blue)
                                 }
                             }
-                            
-                            VStack(alignment: .leading){
+                            VStack(alignment: .leading) {
                                 Text("\(segment.name)")
-                                
                                 Text("\(String(segment.hourStart.hour!))h\(String(format: "%02d", segment.hourStart.minute!))")
-                                
                             }
-                            .italic(segment.synced == .synced ? false : true)
-                            .fontWeight(segment.synced == .synced ? .regular : .light)
-                            
                             Spacer()
-                            
-                            
-                            
                             Text("\(segment.temp.miredsToKelvin) °K")
                                 .font(.subheadline)
-                            
                             Rectangle()
                                 .frame(width: 50)
                                 .foregroundStyle(Color(mireds: Double(segment.temp)))
                                 .padding(7)
-                            
-                            
                         }
-                        
-                        
                     }
-                    
                 }
             }
             .onAppear {
-//                locationManager.latitude = 48.866669
-//                locationManager.longitude = 2.43333       //base value in case of following command doesn't work
                 locationManager.getSingleLocation()
-                
                 listOfSegments = fillListOfSegmentsInit(locationManager: locationManager)
-                                
-                listOfSegments = listOfSegments.sorted { ($0.hourStart.hour! < 3 ? 24 + $0.hourStart.hour! : $0.hourStart.hour!) < ($1.hourStart.hour! < 3 ? 24 + $1.hourStart.hour! : $1.hourStart.hour!) }
-                
+                listOfSegments = sortedSegments(listOfSegments)
                 locationManager.fetchCityName()
+                sendGETGroups(ip: ip, which: nil) { response in
+                    groups = response
+                    groupsIndices = response.map { $0.key }
+                    if selectedGroupIndex.isEmpty, let first = groupsIndices.sorted().first {
+                        selectedGroupIndex = first
+                    }
+                }
             }
-            
-            VStack{
+
+            VStack {
                 Spacer()
-                HStack{
+                HStack {
+                    if !message.isEmpty {
+                        Text(message)
+                            .font(.caption)
+                            .foregroundStyle(sendStatus == .failure ? .red : .green)
+                            .padding(.horizontal)
+                    }
                     Spacer()
-                    Button_With_Icon(text: "send to bridge", icon: "arrowshape.right")
+                    if sendStatus == .success {
+                        NavigationLink {
+                            SetHoursView()
+                                .navigationTitle("Configuration")
+                        } label: {
+                            Button_With_Icon(text: "next", icon: "arrowshape.right.circle", color: .fondClair)
+                        }
+                    } else {
+                        HStack(spacing: 12) {
+                            if sendStatus == .inProgress { ProgressView() }
+                            else if sendStatus == .failure {
+                                Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
+                            }
+                            Button {
+                                guard let groupIdx = Int(selectedGroupIndex) else { return }
+                                sendStatus = .inProgress
+                                createRulesFromlistOfSegments(listOfSegments: listOfSegments, indexGroup: groupIdx) { response in
+                                    message = response
+                                    sendStatus = response.contains("correctly") ? .success : .failure
+                                }
+                            } label: {
+                                Button_With_Icon(text: "send to bridge", icon: "square.and.arrow.up", color: .fondClair)
+                            }
+                            .disabled(sendStatus == .inProgress || selectedGroupIndex.isEmpty)
+                            .opacity(selectedGroupIndex.isEmpty ? 0.35 : 1)
+                        }
+                    }
                 }
             }
             .padding()
         }
-        
-        
     }
-    
+}
+
+private func sortedSegments(_ segments: [Segment]) -> [Segment] {
+    segments.sorted {
+        ($0.hourStart.hour! < 3 ? 24 + $0.hourStart.hour! : $0.hourStart.hour!) <
+        ($1.hourStart.hour! < 3 ? 24 + $1.hourStart.hour! : $1.hourStart.hour!)
+    }
 }
 
 #Preview {
-    _f_welcome()
+    NavigationStack { _f_welcome() }
 }
 
 
-
-
-
-
-
 func fillListOfSegmentsInit(locationManager: LocationManager) -> [Segment] {
-    
     let timeOfSun = SunCalc.getTimes(date: Date(), latitude: locationManager.latitude, longitude: locationManager.longitude)
-    
-    
-    var listOfSegments = [Segment]()
-    
-    listOfSegments += [ Segment(name: "nightEnd", hourStart: Calendar.current.dateComponents([.hour, .minute], from: timeOfSun.nightEnd!), temp: 500, synced: .notSynced, show: false) ]
-
-    listOfSegments += [ Segment(name: "dawn", hourStart: Calendar.current.dateComponents([.hour, .minute], from: timeOfSun.dawn!), temp: 325, synced: .notSynced, show: true) ]
-
-    listOfSegments += [ Segment(name: "sunrise", hourStart: Calendar.current.dateComponents([.hour, .minute], from: timeOfSun.sunrise!), temp: 300, synced: .notSynced, show: true) ]
-    
-    listOfSegments += [ Segment(name: "sunriseEnd", hourStart: Calendar.current.dateComponents([.hour, .minute], from: timeOfSun.sunriseEnd!), temp: 275, synced: .notSynced, show: true) ]
-
-    listOfSegments += [ Segment(name: "goldenHourEnd", hourStart: Calendar.current.dateComponents([.hour, .minute], from: timeOfSun.goldenHourEnd!), temp: 250, synced: .notSynced, show: true) ]
-
-    listOfSegments += [ Segment(name: "solarNoon", hourStart: Calendar.current.dateComponents([.hour, .minute], from: timeOfSun.solarNoon!), temp: 250, synced: .notSynced, show: true) ]
-
-    listOfSegments += [ Segment(name: "goldenHour", hourStart: Calendar.current.dateComponents([.hour, .minute], from: timeOfSun.goldenHour!), temp: 250, synced: .notSynced, show: true) ]
-
-    listOfSegments += [ Segment(name: "sunsetStart", hourStart: Calendar.current.dateComponents([.hour, .minute], from: timeOfSun.sunsetStart!), temp: 280, synced: .notSynced, show: true) ]
-
-    listOfSegments += [ Segment(name: "dusk", hourStart: Calendar.current.dateComponents([.hour, .minute], from: timeOfSun.dusk!), temp: 290, synced: .notSynced, show: true) ]
-    
-    listOfSegments += [ Segment(name: "night", hourStart: Calendar.current.dateComponents([.hour, .minute], from: timeOfSun.night!), temp: 350, synced: .notSynced, show: true) ]
-    
-    listOfSegments += [ Segment(name: "nadir", hourStart: Calendar.current.dateComponents([.hour, .minute], from: timeOfSun.nadir!), temp: 500, synced: .notSynced, show: true) ]
-
-    return listOfSegments
+    return [
+        Segment(name: "nightEnd",      hourStart: Calendar.current.dateComponents([.hour, .minute], from: timeOfSun.nightEnd!),     temp: 500, synced: .notSynced, show: false),
+        Segment(name: "dawn",          hourStart: Calendar.current.dateComponents([.hour, .minute], from: timeOfSun.dawn!),         temp: 325, synced: .notSynced, show: true),
+        Segment(name: "sunrise",       hourStart: Calendar.current.dateComponents([.hour, .minute], from: timeOfSun.sunrise!),      temp: 300, synced: .notSynced, show: true),
+        Segment(name: "sunriseEnd",    hourStart: Calendar.current.dateComponents([.hour, .minute], from: timeOfSun.sunriseEnd!),   temp: 275, synced: .notSynced, show: true),
+        Segment(name: "goldenHourEnd", hourStart: Calendar.current.dateComponents([.hour, .minute], from: timeOfSun.goldenHourEnd!),temp: 250, synced: .notSynced, show: true),
+        Segment(name: "solarNoon",     hourStart: Calendar.current.dateComponents([.hour, .minute], from: timeOfSun.solarNoon!),    temp: 250, synced: .notSynced, show: true),
+        Segment(name: "goldenHour",    hourStart: Calendar.current.dateComponents([.hour, .minute], from: timeOfSun.goldenHour!),   temp: 250, synced: .notSynced, show: true),
+        Segment(name: "sunsetStart",   hourStart: Calendar.current.dateComponents([.hour, .minute], from: timeOfSun.sunsetStart!),  temp: 280, synced: .notSynced, show: true),
+        Segment(name: "dusk",          hourStart: Calendar.current.dateComponents([.hour, .minute], from: timeOfSun.dusk!),         temp: 290, synced: .notSynced, show: true),
+        Segment(name: "night",         hourStart: Calendar.current.dateComponents([.hour, .minute], from: timeOfSun.night!),        temp: 350, synced: .notSynced, show: true),
+        Segment(name: "nadir",         hourStart: Calendar.current.dateComponents([.hour, .minute], from: timeOfSun.nadir!),        temp: 500, synced: .notSynced, show: true),
+    ]
 }

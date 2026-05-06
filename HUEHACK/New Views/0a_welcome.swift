@@ -36,7 +36,12 @@ struct _a_welcome: View {
             Spacer()
             HStack{
                 Spacer()
-                Button_With_Icon(text: "next", icon: "arrowshape.right.circle", color: .fondClair)
+                NavigationLink {
+                    _b_welcome()
+                        .navigationTitle("Connexion au bridge")
+                } label: {
+                    Button_With_Icon(text: "next", icon: "arrowshape.right.circle", color: .fondClair)
+                }
             }
         }
         .padding()

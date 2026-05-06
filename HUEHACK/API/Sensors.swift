@@ -180,7 +180,7 @@ func sendPUTSensors(ip: String, indexSensor: Int, state: Int, completion: @escap
 
 
 func sendGlobalOnOff(ip: String, indexGlobalOnOff: Int, indexTimer: Int, state: Int, completion: @escaping (String) -> Void) {
-    
+
     sendPUTSensors(ip: ip, indexSensor: indexGlobalOnOff, state: state) { response in
         print(response)
     }
@@ -188,4 +188,89 @@ func sendGlobalOnOff(ip: String, indexGlobalOnOff: Int, indexTimer: Int, state: 
         print(response)
     }
  }
+
+
+// MARK: - HUEHACK installation
+
+private func createVirtualSensor(name: String, uniqueid: String, completion: @escaping (Int?) -> Void) {
+    guard let url = URL(string: "http://\(ip)/api/\(username)/sensors") else { completion(nil); return }
+    var request = URLRequest(url: url)
+    request.httpMethod = "POST"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    let body = """
+    {"name":"\(name)","modelid":"HUEHACK","swversion":"1.0","type":"CLIPGenericStatus","uniqueid":"\(uniqueid)","manufacturername":"HUEHACK","recycle":false}
+    """
+    request.httpBody = body.data(using: .utf8)
+    URLSession.shared.dataTask(with: request) { data, _, _ in
+        guard let data = data,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+              let idStr = json.first?["success"] as? [String: Any],
+              let id = idStr["id"] as? String,
+              let idx = Int(id) else { completion(nil); return }
+        completion(idx)
+    }.resume()
+}
+
+private func createTimerHeartbeatRule(indexTimer: Int, completion: @escaping (Bool) -> Void) {
+    guard let url = URL(string: "http://\(ip)/api/\(username)/rules") else { completion(false); return }
+    var request = URLRequest(url: url)
+    request.httpMethod = "POST"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    let body = """
+    {"name":"HUEHACK-HEARTBEAT","conditions":[{"address":"/sensors/\(indexTimer)/state/status","operator":"gt","value":"-1"}],"actions":[{"address":"/sensors/\(indexTimer)/state","method":"PUT","body":{"status":1}}]}
+    """
+    request.httpBody = body.data(using: .utf8)
+    URLSession.shared.dataTask(with: request) { data, _, _ in
+        guard let data = data,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+              json.first?["success"] != nil else { completion(false); return }
+        completion(true)
+    }.resume()
+}
+
+func installHUEHACKSensors(completion: @escaping (Bool, String) -> Void) {
+    sendGETSensors(ip: ip, which: nil) { sensors in
+        var timerIdx: Int? = nil
+        var globalOnOffIdx: Int? = nil
+        for (key, sensor) in sensors {
+            if sensor.name.hasSuffix("TIMER") { timerIdx = Int(key) }
+            if sensor.name.hasSuffix("GLOBAL ONOFF") { globalOnOffIdx = Int(key) }
+        }
+        let alreadyInstalled = timerIdx != nil && globalOnOffIdx != nil
+        let group = DispatchGroup()
+
+        if timerIdx == nil {
+            group.enter()
+            createVirtualSensor(name: "HUEHACK - TIMER", uniqueid: "huehack-timer") { idx in
+                timerIdx = idx
+                group.leave()
+            }
+        }
+        if globalOnOffIdx == nil {
+            group.enter()
+            createVirtualSensor(name: "HUEHACK - GLOBAL ONOFF", uniqueid: "huehack-global") { idx in
+                globalOnOffIdx = idx
+                group.leave()
+            }
+        }
+
+        group.notify(queue: .main) {
+            guard let ti = timerIdx, let goi = globalOnOffIdx else {
+                completion(false, "Impossible de créer les capteurs")
+                return
+            }
+            AppConfig.shared.indexTimer = ti
+            AppConfig.shared.indexGlobalOnOff = goi
+            if alreadyInstalled {
+                completion(true, "HUEHACK déjà installé — indices mis à jour ✓")
+                return
+            }
+            createTimerHeartbeatRule(indexTimer: ti) { ok in
+                DispatchQueue.main.async {
+                    completion(ok, ok ? "HUEHACK installé ✓" : "Capteurs créés mais règle heartbeat échouée")
+                }
+            }
+        }
+    }
+}
 

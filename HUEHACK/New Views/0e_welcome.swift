@@ -2,39 +2,74 @@
 //  0e_welcome.swift
 //  HUEHACK
 //
-//  Created by Nicolas Vair on 31/07/2025.
-//
 
 import SwiftUI
 
 struct _e_welcome: View {
+
+    @State private var installStatus: InstallStatus = .idle
+    @State private var message = ""
+
+    enum InstallStatus { case idle, inProgress, success, failure }
+
     var body: some View {
-        
-        ZStack{
-            
-            VStack{
-
-                Text("Install HUEHACK on bridge")
-                    .padding()
-
-                
-                HStack{
-                    
-                    Button {
-                        // add function to create sensors for general ON / OFF  and scheduler
-                    } label: {
-                        Button_With_Icon(text: "Install HUEHACK on bridge", icon: "square.and.arrow.up", color: .fondClair)
-                    }
-                    
-                }
-                .frame(height: 40)
-            }
-            
-            VStack{
+        ZStack {
+            VStack(spacing: 24) {
                 Spacer()
-                HStack{
+
+                Text("Installation sur le bridge")
+                    .font(.title2.bold())
+
+                Text("HUEHACK crée deux capteurs virtuels sur le bridge pour piloter l'éclairage toutes les 10 secondes.")
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal)
+
+                HStack(spacing: 12) {
+                    Button {
+                        installStatus = .inProgress
+                        installHUEHACKSensors { ok, msg in
+                            message = msg
+                            installStatus = ok ? .success : .failure
+                        }
+                    } label: {
+                        Button_With_Icon(
+                            text: "Installer HUEHACK",
+                            icon: "square.and.arrow.up",
+                            color: .fondClair
+                        )
+                    }
+                    .disabled(installStatus == .inProgress || installStatus == .success)
+
+                    if installStatus == .inProgress { ProgressView() }
+                    else if installStatus == .success { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
+                    else if installStatus == .failure { Image(systemName: "xmark.circle.fill").foregroundStyle(.red) }
+                }
+                .frame(height: 44)
+
+                if !message.isEmpty {
+                    Text(message)
+                        .font(.caption)
+                        .foregroundStyle(installStatus == .failure ? .red : .green)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                }
+
+                Spacer()
+            }
+
+            VStack {
+                Spacer()
+                HStack {
                     Spacer()
-                    Button_With_Icon(text: "next", icon: "arrowshape.right", color: .fondClair)
+                    NavigationLink {
+                        _f_welcome()
+                            .navigationTitle("Configuration solaire")
+                    } label: {
+                        Button_With_Icon(text: "next", icon: "arrowshape.right.circle", color: .fondClair)
+                    }
+                    .disabled(installStatus != .success)
+                    .opacity(installStatus == .success ? 1 : 0.35)
                 }
             }
             .padding()
@@ -43,6 +78,5 @@ struct _e_welcome: View {
 }
 
 #Preview {
-    _e_welcome()
+    NavigationStack { _e_welcome() }
 }
-

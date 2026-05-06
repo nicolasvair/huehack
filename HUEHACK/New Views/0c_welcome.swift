@@ -58,7 +58,7 @@ struct _c_welcome: View {
                         configIsSaved.toggle()
                         
                     } label: {
-                        Text("delete current config")
+                        Text("replace current config")
                             .foregroundStyle(.white)
                             .padding()
                             .background(.red)

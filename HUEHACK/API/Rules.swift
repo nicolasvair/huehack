@@ -158,8 +158,8 @@ func createRulesFromlistOfSegments(listOfSegments: [Segment], indexGroup: Int, c
 
 func createRulesFromlistOfSegments(listOfSegments: [Segment], indexGroup: Int, completion: @escaping (String) -> Void) {
     deleteAllHUEHACKRulesForGroup(indexGroup: indexGroup) {
-        let indiceGlobalOnOff = 171
-        let indiceTimer = 172
+        let indiceGlobalOnOff = indexGlobalOnOff
+        let indiceTimer = indexTimer
         var responsesFromPost = [String]()
         let dispatchGroup = DispatchGroup()
 

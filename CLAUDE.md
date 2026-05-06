@@ -32,7 +32,7 @@ HUEHACK/
 │   ├── 0d_welcome.swift         # Room selection (functional — real groups from bridge, multi-select) → navigates to 0e
 │   ├── 0e_welcome.swift         # Sensor installation (functional — calls installHUEHACKSensors) → navigates to 0f
 │   ├── 0f_welcome.swift         # Solar segment config (functional — group picker + send to bridge wired) → navigates to SetHoursView
-│   ├── 1_overview.swift         # Main dashboard (toggle/slider not wired to API)
+│   ├── 1_overview.swift         # Main dashboard (toggle wired to sendGlobalOnOff, reads current state on appear)
 │   ├── 2_rules.swift            # Rules list (functional — loads bridge + solar compare, update buttons wired)
 │   └── 3_settings.swift         # Settings page (functional — bridge IP, masked username, sensor indices, reset)
 │
@@ -159,10 +159,11 @@ All three do basically the same thing. Should become one canonical function.
 - IP bridge, username masqué (4 premiers + 4 derniers chars), indices capteurs
 - Bouton reset avec confirmation : vide bridgeIP + username → RootView bascule automatiquement en onboarding
 
-### Priority 5 — `1_overview.swift`: brancher l'API
-- Toggle `globalOn` doit appeler `sendGlobalOnOff`
-- Slider `globalDim` : à définir (pas de dim global sur bridge Hue v1 ?)
-- Scènes hardcodées — fonctionnalité future
+### ~~Priority 5 — `1_overview.swift`: brancher l'API~~ ✅ DONE
+- Toggle lit l'état réel du capteur `indexGlobalOnOff` au chargement via `sendGETSensors`
+- `onChange` appelle `sendGlobalOnOff` (state 0=actif, 1=inactif)
+- Slider `globalDim` supprimé — pas d'API de dim global sur bridge Hue v1
+- Scènes hardcodées laissées en place (fonctionnalité future)
 
 ### Onboarding flow — état actuel
 ```

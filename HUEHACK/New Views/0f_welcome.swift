@@ -145,7 +145,7 @@ struct _f_welcome: View {
     }
 }
 
-private func sortedSegments(_ segments: [Segment]) -> [Segment] {
+func sortedSegments(_ segments: [Segment]) -> [Segment] {
     segments.sorted {
         ($0.hourStart.hour! < 3 ? 24 + $0.hourStart.hour! : $0.hourStart.hour!) <
         ($1.hourStart.hour! < 3 ? 24 + $1.hourStart.hour! : $1.hourStart.hour!)

@@ -33,7 +33,7 @@ HUEHACK/
 │   ├── 0e_welcome.swift         # Sensor installation (functional — calls installHUEHACKSensors) → navigates to 0f
 │   ├── 0f_welcome.swift         # Solar segment config (functional — group picker + send to bridge wired) → navigates to SetHoursView
 │   ├── 1_overview.swift         # Main dashboard (toggle/slider not wired to API)
-│   ├── 2_rules.swift            # Rules list (loads fake data, update buttons have no action)
+│   ├── 2_rules.swift            # Rules list (functional — loads bridge + solar compare, update buttons wired)
 │   └── 3_settings.swift         # Empty placeholder
 │
 ├── OldViews/                    # Legacy UI (currently active entry point)
@@ -140,13 +140,14 @@ All three do basically the same thing. Should become one canonical function.
 - Fix: `createRulesFromlistOfSegments` utilisait des indices 171/172 hardcodés → corrigé pour utiliser les globales `indexGlobalOnOff`/`indexTimer`
 - Navigation `0e → 0f` mise à jour (était `0e → SetHoursView`)
 
-### Priority 2 — `2_rules.swift`: lire le bridge + wirer les boutons
-- Actuellement charge `fillListOfSegmentsWrongHour` (données factices avec sync simulé)
-- Doit charger les vrais segments depuis le bridge via `getSegmentFromRulesForGroup`
-- Comparer avec recalcul solaire pour détecter `hourChanged`
-- Bouton "update sun hours" : doit appeler `createRulesFromlistOfSegments` avec les heures recalculées
-- Bouton "update colors" : doit appeler `createRulesFromlistOfSegments` avec les couleurs modifiées
-- Besoin d'un sélecteur de groupe
+### ~~Priority 2 — `2_rules.swift`: lire le bridge + wirer les boutons~~ ✅ DONE
+- Sélecteur de groupe via `sendGETGroups`
+- `loadSegments()`: calcule solar + lit bridge via `getSegmentFromRulesForGroup`, compare position par position
+  - `hourChanged = true` si heure solaire ≠ heure bridge
+  - `.notSynced` si temp solaire ≠ temp bridge
+- Boutons "update sun hours" et "update colors" : appellent `sendSolarToBridge()` → `createRulesFromlistOfSegments`
+- Recharge depuis bridge après envoi réussi
+- Note: `fillListOfSegments` (doublon) supprimé, remplacé par `fillListOfSegmentsInit` de `0f_welcome.swift`
 
 ### Priority 3 — `0d_welcome`: vraie sélection de rooms
 - Actuellement liste hardcodée `["Living room", "Bedroom", ...]`

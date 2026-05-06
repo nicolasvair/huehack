@@ -34,7 +34,7 @@ HUEHACK/
 │   ├── 0f_welcome.swift         # Solar segment config (functional — group picker + send to bridge wired) → navigates to SetHoursView
 │   ├── 1_overview.swift         # Main dashboard (toggle/slider not wired to API)
 │   ├── 2_rules.swift            # Rules list (functional — loads bridge + solar compare, update buttons wired)
-│   └── 3_settings.swift         # Empty placeholder
+│   └── 3_settings.swift         # Settings page (functional — bridge IP, masked username, sensor indices, reset)
 │
 ├── OldViews/                    # Legacy UI (currently active entry point)
 │   ├── SetHoursView.swift       # Main working view — group picker + segment list
@@ -155,9 +155,9 @@ All three do basically the same thing. Should become one canonical function.
 - Navigation `0b → 0d → 0e` câblée (0c toujours hors flow)
 - Note: sélection non persistée — consommée uniquement par le flux onboarding (pas encore utilisée par 0f)
 
-### Priority 4 — `3_settings.swift`: page paramètres
-- Fichier vide
-- Doit afficher : IP bridge, username (masqué), indices capteurs, bouton reset
+### ~~Priority 4 — `3_settings.swift`: page paramètres~~ ✅ DONE
+- IP bridge, username masqué (4 premiers + 4 derniers chars), indices capteurs
+- Bouton reset avec confirmation : vide bridgeIP + username → RootView bascule automatiquement en onboarding
 
 ### Priority 5 — `1_overview.swift`: brancher l'API
 - Toggle `globalOn` doit appeler `sendGlobalOnOff`

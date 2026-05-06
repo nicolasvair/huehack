@@ -27,9 +27,9 @@ HUEHACK/
 │
 ├── New Views/                   # Active UI (onboarding flow)
 │   ├── 0a_welcome.swift         # Intro screen → navigates to 0b
-│   ├── 0b_welcome.swift         # Bridge discovery + pairing (functional, writes AppStorage) → navigates to 0e
-│   ├── 0c_welcome.swift         # Backup config decision (stub — buttons have no action)
-│   ├── 0d_welcome.swift         # Room/light selection (stub — hardcoded fake data)
+│   ├── 0b_welcome.swift         # Bridge discovery + pairing (functional, writes AppStorage) → navigates to 0d
+│   ├── 0c_welcome.swift         # Backup config decision (stub — not in active flow)
+│   ├── 0d_welcome.swift         # Room selection (functional — real groups from bridge, multi-select) → navigates to 0e
 │   ├── 0e_welcome.swift         # Sensor installation (functional — calls installHUEHACKSensors) → navigates to 0f
 │   ├── 0f_welcome.swift         # Solar segment config (functional — group picker + send to bridge wired) → navigates to SetHoursView
 │   ├── 1_overview.swift         # Main dashboard (toggle/slider not wired to API)
@@ -149,10 +149,11 @@ All three do basically the same thing. Should become one canonical function.
 - Recharge depuis bridge après envoi réussi
 - Note: `fillListOfSegments` (doublon) supprimé, remplacé par `fillListOfSegmentsInit` de `0f_welcome.swift`
 
-### Priority 3 — `0d_welcome`: vraie sélection de rooms
-- Actuellement liste hardcodée `["Living room", "Bedroom", ...]`
-- Doit appeler `sendGETGroups()` et laisser l'utilisateur choisir
-- Choix persisté (UserDefaults ou passé en paramètre à l'installation)
+### ~~Priority 3 — `0d_welcome`: vraie sélection de rooms~~ ✅ DONE
+- Appelle `sendGETGroups()` au chargement, toutes les rooms pré-sélectionnées
+- Multi-select avec checkmarks, nom + nombre de lumières par room
+- Navigation `0b → 0d → 0e` câblée (0c toujours hors flow)
+- Note: sélection non persistée — consommée uniquement par le flux onboarding (pas encore utilisée par 0f)
 
 ### Priority 4 — `3_settings.swift`: page paramètres
 - Fichier vide

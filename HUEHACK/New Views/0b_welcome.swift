@@ -101,8 +101,8 @@ struct _b_welcome: View {
                 HStack {
                     Spacer()
                     NavigationLink {
-                        _e_welcome()
-                            .navigationTitle("Installation")
+                        _d_welcome()
+                            .navigationTitle("Pièces")
                     } label: {
                         Button_With_Icon(text: "next", icon: "arrowshape.right.circle", color: .fondClair)
                     }

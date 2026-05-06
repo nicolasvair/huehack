@@ -1,97 +1,88 @@
 //
-//  0_welcome.swift
+//  0d_welcome.swift
 //  HUEHACK
 //
-//  Created by Nicolas Vair on 09/04/2025.
-//
-
-
-
-// choisir une room, toutes les lights de la room sont sélectionnées, on peut les déselectionner
-// ou bien choisir les lights directement ? à voir selon format exploration, au + simple
-// MAYBE LIMITER AU DÉBUT À SOIT ROOM SOIT LIGHTS SÉPARÉES
-
-
-
 
 import SwiftUI
 
 struct _d_welcome: View {
-    
-    @State private var configIsSaved = false
-    
+
+    @State private var groups = [String: RoomResponse]()
+    @State private var groupsIndices = [String]()
+    @State private var selectedIndices = Set<String>()
+    @State private var isLoading = false
+
     var body: some View {
- 
-        ZStack{
-            VStack{
-                Text("Choose which rooms or lighs will be controlled by HUEHACK")
+        ZStack {
+            VStack(alignment: .leading) {
+                Text("Choisis les pièces que HUEHACK va contrôler.")
                     .padding()
-                
-                HStack{
-                    
-                    let listRooms = ["Living room", "Bedroom", "Kitchen", "Bathroom"]
-                    
-                    let listLights = ["Living room light", "Bedroom light", "Kitchen light", "Bathroom light"]
-                    
-                    var isTapped = false
-                    
-                    HStack{
-                        VStack{
-                            Text("Rooms")
-                                .font(.title3)
-                            
-                            ScrollView{
-                                ForEach(listRooms, id:\.self) { roomName in
-                                    Text(roomName)
-                                        .padding(5)
-                                        .foregroundStyle(isTapped ? .red : .black)
+
+                if isLoading {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                } else if groupsIndices.isEmpty {
+                    Text("Aucune pièce trouvée sur le bridge.")
+                        .foregroundStyle(.secondary)
+                        .padding()
+                } else {
+                    List {
+                        ForEach(groupsIndices.sorted(), id: \.self) { idx in
+                            if let room = groups[idx] {
+                                Button {
+                                    if selectedIndices.contains(idx) {
+                                        selectedIndices.remove(idx)
+                                    } else {
+                                        selectedIndices.insert(idx)
+                                    }
+                                } label: {
+                                    HStack {
+                                        Image(systemName: selectedIndices.contains(idx) ? "checkmark.circle.fill" : "circle")
+                                            .foregroundStyle(selectedIndices.contains(idx) ? .blue : .secondary)
+                                        VStack(alignment: .leading) {
+                                            Text(room.name)
+                                                .foregroundStyle(.primary)
+                                            Text("\(room.lights.count) lumière\(room.lights.count > 1 ? "s" : "")")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
                                 }
                             }
-                            .background(.gray.opacity(0.3))
-                            .cornerRadius(10)
-                            //                    .padding()
-                            //                    .frame(height:150)
                         }
-                        
-                        VStack{
-                            Text("Lights")
-                                .font(.title3)
-                            
-                            ScrollView{
-                                ForEach(listLights, id:\.self) { roomName in
-                                    Text(roomName)
-                                        .padding(5)
-                                        .foregroundStyle(isTapped ? .red : .black)
-                                }
-                            }
-                            .background(.gray.opacity(0.3))
-                            .cornerRadius(10)
-                            //                    .padding()
-                            //                    .frame(height:150)
-                        }
-                        
                     }
-                    
                 }
-                .frame(height: 200)
-                
             }
-            
-            VStack{
+
+            VStack {
                 Spacer()
-                HStack{
+                HStack {
                     Spacer()
-                    Button_With_Icon(text: "Install HUEHACK on bridge", icon: "square.and.arrow.up", color: .fondClair)
+                    NavigationLink {
+                        _e_welcome()
+                            .navigationTitle("Installation")
+                    } label: {
+                        Button_With_Icon(text: "next", icon: "arrowshape.right.circle", color: .fondClair)
+                    }
+                    .disabled(selectedIndices.isEmpty)
+                    .opacity(selectedIndices.isEmpty ? 0.35 : 1)
                 }
             }
             .padding()
         }
-        
-
-
+        .onAppear {
+            isLoading = true
+            sendGETGroups(ip: ip, which: nil) { response in
+                groups = response
+                groupsIndices = response.map { $0.key }
+                selectedIndices = Set(groupsIndices)
+                isLoading = false
+            }
+        }
     }
 }
 
 #Preview {
-    _d_welcome()
+    NavigationStack { _d_welcome() }
 }

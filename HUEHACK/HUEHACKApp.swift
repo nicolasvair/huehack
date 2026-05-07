@@ -2,8 +2,6 @@
 //  HUEHACKApp.swift
 //  HUEHACK
 //
-//  Created by Nicolas Vair on 04/01/2025.
-//
 
 import SwiftUI
 
@@ -11,25 +9,35 @@ import SwiftUI
 struct HUEHACKApp: App {
     let persistenceController = PersistenceController.shared
 
-    var body: some Scene {
-        WindowGroup {
-            RootView()
-                .environment(\.managedObjectContext, persistenceController.container.viewContext)
-        }
-    }
-}
-
-private struct RootView: View {
+    @AppStorage("hueOnboardingComplete") private var onboardingComplete = false
     @AppStorage("hueBridgeIP") private var bridgeIP = ""
     @AppStorage("usernameKey") private var storedUsername = ""
 
-    var body: some View {
-        NavigationStack {
-            if !bridgeIP.isEmpty && !storedUsername.isEmpty {
-                SetHoursView()
-            } else {
-                _a_welcome()
+    var body: some Scene {
+        WindowGroup {
+            NavigationStack {
+                if onboardingComplete || (!bridgeIP.isEmpty && !storedUsername.isEmpty) {
+                    __rooms()
+                        .navigationTitle("HUEHACK")
+                        .toolbar {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                NavigationLink {
+                                    __settings()
+                                        .navigationTitle("Réglages")
+                                } label: {
+                                    Image(systemName: "gear")
+                                }
+                            }
+                        }
+                        .onAppear {
+                            if !onboardingComplete { onboardingComplete = true }
+                        }
+                } else {
+                    _a_welcome()
+                        .navigationTitle("Bienvenue")
+                }
             }
+            .environment(\.managedObjectContext, persistenceController.container.viewContext)
         }
     }
 }

@@ -20,6 +20,7 @@ struct EditSegment: View {
     
     @State var index: Int
     @Binding var listOfSegments: [Segment]
+    var groupIndex: Int
     
     @State private var pickerHourIn = Date()
     @State private var pickerHourOut = Date()
@@ -104,7 +105,7 @@ struct EditSegment: View {
                 if currentTime.timeIntervalSince(lastRequestTime) > 0.5 {
                     lastRequestTime = currentTime
                     let temp = Int(1000000 / newValue)
-                    sendPUTGroupRequest(ip: ip, groupIndex: 81, ct: temp) { response in
+                    sendPUTGroupRequest(ip: ip, groupIndex: groupIndex, ct: temp) { response in
                     }
                 }
             }
@@ -136,5 +137,5 @@ struct EditSegment: View {
 
 
 #Preview {
-    EditSegment(index: 0, listOfSegments: .constant(defaultListOfSegments))
+    EditSegment(index: 0, listOfSegments: .constant(defaultListOfSegments), groupIndex: 0)
 }

@@ -1,6 +1,11 @@
+//
+//  AppConfig.swift
+//  HUEHACK
+//
+
 import Foundation
 
-class AppConfig {
+final class AppConfig {
     static let shared = AppConfig()
     private init() {}
 
@@ -16,21 +21,33 @@ class AppConfig {
 
     var indexGlobalOnOff: Int {
         get {
-            let v = UserDefaults.standard.integer(forKey: "indexGlobalOnOff")
-            return v == 0 ? 171 : v
+            let v = UserDefaults.standard.integer(forKey: "hueIndexGlobalOnOff")
+            if v > 0 { return v }
+            // Migrate from old key
+            let old = UserDefaults.standard.integer(forKey: "indexGlobalOnOff")
+            return old > 0 ? old : 171
         }
-        set { UserDefaults.standard.set(newValue, forKey: "indexGlobalOnOff") }
+        set { UserDefaults.standard.set(newValue, forKey: "hueIndexGlobalOnOff") }
     }
 
     var indexTimer: Int {
         get {
-            let v = UserDefaults.standard.integer(forKey: "indexTimer")
-            return v == 0 ? 172 : v
+            let v = UserDefaults.standard.integer(forKey: "hueIndexTimer")
+            if v > 0 { return v }
+            // Migrate from old key
+            let old = UserDefaults.standard.integer(forKey: "indexTimer")
+            return old > 0 ? old : 172
         }
-        set { UserDefaults.standard.set(newValue, forKey: "indexTimer") }
+        set { UserDefaults.standard.set(newValue, forKey: "hueIndexTimer") }
     }
 
     var isConfigured: Bool {
         !ip.isEmpty && !username.isEmpty
     }
 }
+
+// Module-level aliases so all existing API functions keep working without changes
+var ip: String { AppConfig.shared.ip }
+var username: String { AppConfig.shared.username }
+var indexGlobalOnOff: Int { AppConfig.shared.indexGlobalOnOff }
+var indexTimer: Int { AppConfig.shared.indexTimer }

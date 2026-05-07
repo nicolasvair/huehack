@@ -10,6 +10,8 @@ import SunCalc
 
 struct _f_welcome: View {
 
+    @AppStorage("hueOnboardingComplete") private var onboardingComplete = false
+
     @StateObject private var locationManager = LocationManager()
     @State private var listOfSegments = [Segment]()
     @State private var isEditing = false
@@ -112,12 +114,8 @@ struct _f_welcome: View {
                     }
                     Spacer()
                     if sendStatus == .success {
-                        NavigationLink {
-                            SetHoursView()
-                                .navigationTitle("Configuration")
-                        } label: {
-                            Button_With_Icon(text: "next", icon: "arrowshape.right.circle", color: .fondClair)
-                        }
+                        Button_With_Icon(text: "done !", icon: "checkmark.circle", color: .fondClair)
+                            .onTapGesture { onboardingComplete = true }
                     } else {
                         HStack(spacing: 12) {
                             if sendStatus == .inProgress { ProgressView() }

@@ -9,28 +9,6 @@
 import Foundation
 import SwiftUI
 
-var ip: String {
-    get { AppConfig.shared.ip }
-    set { AppConfig.shared.ip = newValue }
-}
-
-var username: String {
-    get { AppConfig.shared.username }
-    set { AppConfig.shared.username = newValue }
-}
-
-var indexGlobalOnOff: Int {
-    get { AppConfig.shared.indexGlobalOnOff }
-    set { AppConfig.shared.indexGlobalOnOff = newValue }
-}
-
-var indexTimer: Int {
-    get { AppConfig.shared.indexTimer }
-    set { AppConfig.shared.indexTimer = newValue }
-}
-
-
-
 
 struct Segment: Identifiable {
     var id = UUID()
@@ -41,6 +19,7 @@ struct Segment: Identifiable {
     var synced: Synced
     var show: Bool?
     var hourChanged: Bool = false
+    var newHourStart: DateComponents? = nil
 }
 
 enum Synced {
@@ -87,7 +66,7 @@ struct SetHoursView: View {
                 List {
                     ForEach(listOfSegments.indices, id: \.self) { index in
                         NavigationLink {
-                            EditSegment(index: index, listOfSegments: $listOfSegments)
+                            EditSegment(index: index, listOfSegments: $listOfSegments, groupIndex: Int(selectedGroupIndex) ?? 0)
                         } label: {
                             HStack {
                                 let segment = listOfSegments[index]

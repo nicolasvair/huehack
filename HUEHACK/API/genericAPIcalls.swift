@@ -67,18 +67,16 @@ class HueAPIManager: ObservableObject {
     }
 
     
-    // ERROR ACA
     func sendGETall() {
-//        guard let path = String("http://\(String(ip!))/api/\(String(username!))/").nonEmpty,
-//              let url = buildURL(path: path) else {
-//            status = .failure("Invalid URL or missing IP/username")
-//            return
-//        }
-        let url = URL("http://192.168.1.121/api/Ysb9rdQOligiRgTML4GPc2H-i7yMantyT4Xe7NCc")
+        guard let ip = ip, let username = username,
+              let url = URL(string: "http://\(ip)/api/\(username)") else {
+            status = .failure("Invalid URL or missing IP/username")
+            return
+        }
 
         status = .inProgress
 
-        var request = URLRequest(url: url!)
+        var request = URLRequest(url: url)
         request.httpMethod = TypeRequest.GET.rawValue
 
         URLSession.shared.dataTask(with: request) { data, _, error in

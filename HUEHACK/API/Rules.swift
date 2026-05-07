@@ -38,15 +38,31 @@ struct ActionBody: Decodable {
     let ct: Int?
 }
 
+// MARK: - Segment metadata persistence (name + show state, keyed by group)
+
+private struct SegmentMeta: Codable {
+    let name: String
+    let show: Bool
+}
+
+func saveSegmentMeta(segments: [Segment], groupIndex: Int) {
+    let meta = segments.map { SegmentMeta(name: $0.name, show: $0.show ?? true) }
+    if let encoded = try? JSONEncoder().encode(meta) {
+        UserDefaults.standard.set(encoded, forKey: "huehack-meta-\(String(format: "%02d", groupIndex))")
+    }
+}
+
+private func loadSegmentMeta(_ groupIndex: Int) -> [SegmentMeta] {
+    guard let data = UserDefaults.standard.data(forKey: "huehack-meta-\(String(format: "%02d", groupIndex))"),
+          let meta = try? JSONDecoder().decode([SegmentMeta].self, from: data) else { return [] }
+    return meta
+}
+
 
 func decodeOneRuleResponse(jsonData: Data) -> Rule? {
-//    print(String(data: jsonData, encoding: .utf8) ?? "Invalid UTF-8 data")
-
     do {
         let decoder = JSONDecoder()
-//        decoder.keyDecodingStrategy = .convertFromSnakeCase
         let rule = try decoder.decode(Rule.self, from: jsonData)
-
         return rule
     } catch {
         print("Failed to decode JSON: \(error.localizedDescription)")
@@ -55,13 +71,9 @@ func decodeOneRuleResponse(jsonData: Data) -> Rule? {
 }
 
 func decodeRulesResponse(jsonData: Data) -> [String:Rule]? {
-//    print(String(data: jsonData, encoding: .utf8) ?? "Invalid UTF-8 data")
-
     do {
         let decoder = JSONDecoder()
-//        decoder.keyDecodingStrategy = .convertFromSnakeCase
         let rules = try decoder.decode([String:Rule].self, from: jsonData)
-
         return rules
     } catch {
         print("Failed to decode JSON: \(error.localizedDescription)")
@@ -75,41 +87,25 @@ func sendGETRules(ip: String, which: String?, completion: @escaping ([String: Ru
         print("Invalid URL")
         return
     }
-    
+
     var request = URLRequest(url: url)
     request.httpMethod = TypeRequest.GET.rawValue
-    
+
     URLSession.shared.dataTask(with: request) { data, response, error in
         if let error = error {
             print("Error: \(error.localizedDescription)")
-            //            completion(error.localizedDescription)
         }
         else if let data = data {
-            
-            // when a specific rule is get
             if let which = which {
                 if let rule = decodeOneRuleResponse(jsonData: data) {
-                    //                    print(rule.name)
                     let result = [which:rule]
                     completion(result)
                 } else {
                     print("Failed to decode response")
                 }
             }
-            //if not, all rules, then decode all rules
             else {
                 if let rules = decodeRulesResponse(jsonData: data) {
-//                    var result = " ----- RULES ----- \n"
-//                    
-//                    for rule in rules {
-//                        if let name = rule.1.name {
-//                            result += "\(rule.0) - \(name) \n"
-//                        } else {
-//                            result += "\(rule.0) - \(rule.1.name) - \n"
-//                        }
-//                    }
-//                    print(result)
-                    
                     completion(rules)
                 }
                 else {
@@ -120,41 +116,6 @@ func sendGETRules(ip: String, which: String?, completion: @escaping ([String: Ru
     }.resume()
 }
 
-
-// ICI
-/*
-func createRulesFromlistOfSegments(listOfSegments: [Segment], indexGroup: Int, completion: @escaping ([String]) -> Void) {
-    deleteAllHUEHACKRulesForGroup(indexGroup: indexGroup) {
-        let indiceGlobalOnOff = 171
-        let indiceTimer = 172
-        var responsesFromPost = [String]()
-        let dispatchGroup = DispatchGroup()
-
-        for indice in listOfSegments.indices {
-            dispatchGroup.enter()
-            let nextIndex = (indice + 1) % listOfSegments.count
-            sendPOSTRuleRequest(ip: ip,
-                                 start: listOfSegments[indice].hourStart,
-                                 end: listOfSegments[nextIndex].hourStart,
-                                 temp: listOfSegments[indice].temp,
-                                 indexGroup: indexGroup,
-                                 indexRègle: indice,
-                                 indexTimer: indiceTimer,
-                                 indexGobalOnOff: indiceGlobalOnOff) { response in
-                responsesFromPost.append(response)
-                dispatchGroup.leave()
-            }
-        }
-
-        dispatchGroup.notify(queue: .main) {
-            sendPUTSensors(ip: ip, indexSensor: indiceTimer, state: 0) { response in
-                print(response)
-            }
-            completion(responsesFromPost)
-        }
-    }
-}
- */
 
 func createRulesFromlistOfSegments(listOfSegments: [Segment], indexGroup: Int, completion: @escaping (String) -> Void) {
     deleteAllHUEHACKRulesForGroup(indexGroup: indexGroup) {
@@ -180,7 +141,8 @@ func createRulesFromlistOfSegments(listOfSegments: [Segment], indexGroup: Int, c
         }
 
         dispatchGroup.notify(queue: .main) {
-            // Analyze responses
+            saveSegmentMeta(segments: listOfSegments, groupIndex: indexGroup)
+
             var errors = [String]()
             for response in responsesFromPost {
                 if !response.contains("\"success\"") {
@@ -215,11 +177,10 @@ func sendPOSTRuleRequest(ip: String, start: DateComponents, end: DateComponents,
          print("Invalid URL")
         return
      }
-     
+
      var request = URLRequest(url: url)
      request.httpMethod = "POST"
-    
-    
+
     let hourStartString = String(format: "%02d", start.hour ?? 0)
     let minStartString = String(format: "%02d", start.minute ?? 0)
 
@@ -230,62 +191,12 @@ func sendPOSTRuleRequest(ip: String, start: DateComponents, end: DateComponents,
     else {
         hourEndString = String(format: "%02d", ( (end.hour ?? 0) + 24 ) % 24 )
     }
-    
+
     let minEndString = String(format: "%02d", ((end.minute ?? 0)  - 1 + 60 ) % 60 )
-    
+
     let indexGroupString = String(format: "%02d", indexGroup)
     let indexRègleString = String(format: "%02d", indexRègle)
-    
-//    print("group : \(indexGroupString) - index : \(indexRègleString) - start : \(hourStartString):\(minStartString):00 - end : \(hourEndString):\(minEndString):59 ")
 
-    
-    // old value
-    /*
-    let body = """
-    {
-            "name": "HUEHACK-\(indexGroupString)-\(indexRègleString)",
-            "conditions": [
-                {
-                    "address": "/sensors/\(indexTimer)/state/lastupdated",
-                    "operator": "ddx",
-                    "value": "PT00:00:05"
-                },
-                {
-                    "address": "/config/localtime",
-                    "operator": "in",
-                    "value": "T\(hourStartString):\(minStartString):00/T\(hourEndString):\(minEndString):59"
-                },
-                {
-                    "address": "/sensors/\(indexGobalOnOff)/state/status",
-                    "operator": "eq",
-                    "value": "0"
-                }
-            ],
-            "actions": [
-                {
-                    "address": "/sensors/\(indexTimer)/state",
-                    "method": "PUT",
-                    "body": {
-                        "status": 0
-                    }
-                },
-                {
-                    "address": "/groups/\(indexGroup)/action",
-                    "method": "PUT",
-                    "body": {
-                        "ct": \(temp)
-                    }
-                }
-            ]
-        }
-    """
-     */
-    
-    
-    
-    // new value
-    // should add som sort of initializer for the 
-    
     let body = """
     {
             "name": "HUEHACK-\(indexGroupString)-\(indexRègleString)",
@@ -317,22 +228,16 @@ func sendPOSTRuleRequest(ip: String, start: DateComponents, end: DateComponents,
             ]
         }
     """
-     
 
-    
     if let jsonDataBody = body.data(using: .utf8) {
         request.httpBody = jsonDataBody
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     }
-    
-
 
      URLSession.shared.dataTask(with: request) { data, response2, error in
          if let error = error {
-//             print("Error: \(error.localizedDescription)")
              completion(error.localizedDescription)
          } else if let data = data, let responseString = String(data: data, encoding: .utf8) {
-//             print("Response: \(responseString)")
              completion(responseString)
          }
      }.resume()
@@ -347,15 +252,13 @@ func checkRulesIndex() -> [String: String] {
         for rulesTuple in response {
             if rulesTuple.1.name.prefix(7) == "HUEHACK" {
                 let name = String(rulesTuple.1.name.dropFirst(10))
-                
+
                 if name == "TIMER" || name == "GLOBAL ONOFF" {
                     results[name] = rulesTuple.0
                     print("\(name) - \(rulesTuple.0)")
                 }
             }
         }
-        
-//        print("Rules nb : \(results)")
     }
     return results
 }
@@ -367,19 +270,14 @@ func getRulesAndFilterByGroup(group: Int, completion: @escaping ([String: Rule])
         for rulesTuple in response {
             if rulesTuple.1.name.prefix(7) == "HUEHACK" {
                 let name = String(rulesTuple.1.name.dropFirst(8))
-//                print(name)
                 if name.prefix(2) == String(format: "%02d", group){
-//                    print(rulesTuple.1.name)
                     results[rulesTuple.0] = rulesTuple.1
                 }
             }
         }
         completion(results)
-//        print("Rules nb : \(results)")
     }
 }
-
-
 
 
 func deleteAllHUEHACKRules(completion: @escaping () -> Void) {
@@ -395,13 +293,12 @@ func deleteAllHUEHACKRules(completion: @escaping () -> Void) {
         let group = DispatchGroup()
 
         for index in indexesOfHUEHACKRules {
-            group.enter() // Entrer dans le groupe
+            group.enter()
             sendDELETERequest(ip: ip, what: TypeWhat.rules, which: Int(index)!) { _ in
-                group.leave() // Quitter le groupe une fois la requête terminée
+                group.leave()
             }
         }
 
-        // Appeler le `completion` une fois que toutes les suppressions sont terminées
         group.notify(queue: .main) {
             completion()
         }
@@ -416,7 +313,6 @@ func deleteAllHUEHACKRulesForGroup(indexGroup: Int, completion: @escaping () -> 
         for rulesTuple in response {
             if rulesTuple.1.name.prefix(7) == "HUEHACK" {
                 if rulesTuple.1.name.dropFirst(8).prefix(2) == String(format: "%02d", indexGroup) {
-//                    print(rulesTuple.1.name.dropFirst(8).prefix(2))
                     indexesOfHUEHACKRules.append(rulesTuple.0)
                 }
             }
@@ -425,13 +321,12 @@ func deleteAllHUEHACKRulesForGroup(indexGroup: Int, completion: @escaping () -> 
         let group = DispatchGroup()
 
         for index in indexesOfHUEHACKRules {
-            group.enter() // Entrer dans le groupe
+            group.enter()
             sendDELETERequest(ip: ip, what: TypeWhat.rules, which: Int(index)!) { _ in
-                group.leave() // Quitter le groupe une fois la requête terminée
+                group.leave()
             }
         }
 
-        // Appeler le `completion` une fois que toutes les suppressions sont terminées
         group.notify(queue: .main) {
             completion()
         }
@@ -440,23 +335,21 @@ func deleteAllHUEHACKRulesForGroup(indexGroup: Int, completion: @escaping () -> 
 
 
 func segmentFromRule(rule: Rule) -> Segment? {
-    
+
     let name = String(rule.name.dropFirst(8))
-    
+
     if let time = rule.conditions![1].value {
-        
+
         let timeFormatted = time.split(separator: "/")[0].dropFirst(1).split(separator: ":")
         let hourStart = DateComponents(hour: Int(timeFormatted[0]) ?? 0, minute: Int(timeFormatted[1]) ?? 0)
-//        print(dateComponents)
-        
+
         if let temp = rule.actions![0].body.ct {
             return Segment(name: name, hourStart: hourStart, temp: temp, synced: .synced)
         }
     }
-    
+
     return nil
 }
-
 
 
 func createSegmentFor(listOfSegments: [Segment], time: DateComponents) {
@@ -465,39 +358,26 @@ func createSegmentFor(listOfSegments: [Segment], time: DateComponents) {
 
 func createSegmentForNow(listOfSegments: inout [Segment]) {
     let now = Calendar.current.dateComponents([.hour, .minute], from: Date())
-    
+
     var currentTemp = 200
-    
     var listOfSegmentsTemp = listOfSegments
-    
-//    listOfSegmentsTemp = listOfSegmentsTemp.sorted{ $0.hourStart.hour! < $1.hourStart.hour! }
-    
+
     for i in listOfSegments.indices {
-        
+
         if listOfSegments.indices.contains(i+1) {
-            
             if let hour1 = listOfSegments[i].hourStart.hour, let minute1 = listOfSegments[i].hourStart.minute, let hour2 = listOfSegments[i+1].hourStart.hour, let minute2 = listOfSegments[i+1].hourStart.minute, let hourNow = now.hour, let minuteNow = now.minute, (hour1, minute1) < (hourNow, minuteNow) && (hourNow, minuteNow) < (hour2, minute2)  {
-                
-                print("now entre \(listOfSegments[i].hourStart) et \(listOfSegments[i+1].hourStart)")
-                
                 currentTemp = listOfSegments[i].temp
             }
         }
         else {
             if let hour1 = listOfSegments[i].hourStart.hour, let minute1 = listOfSegments[i].hourStart.minute, let hour2 = listOfSegments[0].hourStart.hour, let minute2 = listOfSegments[0].hourStart.minute, let hourNow = now.hour, let minuteNow = now.minute, (hour1, minute1) < (hourNow, minuteNow) && (hourNow, minuteNow) < (hour2, minute2) {
-                
-                print("now entre \(listOfSegments[i].hourStart) et \(listOfSegments[0].hourStart)")
-                
                 currentTemp = listOfSegments[i].temp
             }
-
         }
     }
-    
+
     let newSegment = Segment(name: "", hourStart: now, temp: currentTemp, synced: .notSynced)
-    
     listOfSegmentsTemp = listOfSegments + [newSegment]
-    
     listOfSegmentsTemp = listOfSegmentsTemp.sorted {
         if $0.hourStart.hour! == $1.hourStart.hour! {
             return $0.hourStart.minute! < $1.hourStart.minute!
@@ -505,33 +385,86 @@ func createSegmentForNow(listOfSegments: inout [Segment]) {
         return $0.hourStart.hour! < $1.hourStart.hour!
     }
     listOfSegmentsTemp.append(listOfSegmentsTemp.removeFirst())
-    
     listOfSegments = listOfSegmentsTemp
 }
 
 
-
 func getSegmentFromRulesForGroup(selectedGroupIndex: Int, completion: @escaping ([Segment]) -> Void) {
-    
+    let meta = loadSegmentMeta(selectedGroupIndex)
+
     getRulesAndFilterByGroup(group: selectedGroupIndex) { filteredRules in
-                
         var listOfSegmentsTemp = [Segment]()
-        
+
         for rule in filteredRules {
-            if let segment = segmentFromRule(rule: rule.1) {
+            if var segment = segmentFromRule(rule: rule.1) {
+                let parts = segment.name.split(separator: "-")
+                if parts.count == 2, let ruleIdx = Int(parts[1]), ruleIdx < meta.count {
+                    segment.name = meta[ruleIdx].name
+                    segment.show = meta[ruleIdx].show
+                }
                 listOfSegmentsTemp.append(segment)
             }
         }
-        
-        // Tri des segments et déplacement du premier à la fin
+
         listOfSegmentsTemp = listOfSegmentsTemp.sorted {
-            if $0.hourStart.hour! == $1.hourStart.hour! {
-                return $0.hourStart.minute! < $1.hourStart.minute!
-            }
-            return $0.hourStart.hour! < $1.hourStart.hour!
+            let h0 = ($0.hourStart.hour! < 3 ? $0.hourStart.hour! + 24 : $0.hourStart.hour!) * 60 + ($0.hourStart.minute ?? 0)
+            let h1 = ($1.hourStart.hour! < 3 ? $1.hourStart.hour! + 24 : $1.hourStart.hour!) * 60 + ($1.hourStart.minute ?? 0)
+            return h0 < h1
         }
-        listOfSegmentsTemp.append(listOfSegmentsTemp.removeFirst())
-        
+
         completion(listOfSegmentsTemp)
     }
+}
+
+// MARK: - Solar merge
+
+private func solarSortKey(_ s: Segment) -> Int {
+    let h = s.hourStart.hour ?? 0
+    return (h < 3 ? h + 24 : h) * 60 + (s.hourStart.minute ?? 0)
+}
+
+func mergeSegmentsWithSolar(bridgeSegments: [Segment], locationManager: LocationManager) -> [Segment] {
+    let solar = fillListOfSegments(locationManager: locationManager)
+    let solarNames = Set(solar.map { $0.name })
+
+    if bridgeSegments.contains(where: { solarNames.contains($0.name) }) {
+        var result = [Segment]()
+        for solarSeg in solar {
+            if let bridge = bridgeSegments.first(where: { $0.name == solarSeg.name }) {
+                let hourDiffers = bridge.hourStart.hour != solarSeg.hourStart.hour
+                    || bridge.hourStart.minute != solarSeg.hourStart.minute
+                var merged = bridge
+                merged.newHourStart = solarSeg.hourStart
+                merged.hourChanged = hourDiffers
+                result.append(merged)
+            } else {
+                result.append(solarSeg)
+            }
+        }
+        for bridge in bridgeSegments where !solarNames.contains(bridge.name) {
+            result.append(bridge)
+        }
+        return result
+    }
+
+    // Positional fallback: assign solar names to unnamed bridge segments
+    let sortedBridge = bridgeSegments.sorted { solarSortKey($0) < solarSortKey($1) }
+    let sortedSolar = solar.sorted { solarSortKey($0) < solarSortKey($1) }
+    var result = [Segment]()
+    for (i, solarSeg) in sortedSolar.enumerated() {
+        if i < sortedBridge.count {
+            let bridge = sortedBridge[i]
+            let hourDiffers = bridge.hourStart.hour != solarSeg.hourStart.hour
+                || bridge.hourStart.minute != solarSeg.hourStart.minute
+            var merged = bridge
+            merged.name = solarSeg.name
+            merged.show = solarSeg.show
+            merged.newHourStart = solarSeg.hourStart
+            merged.hourChanged = hourDiffers
+            result.append(merged)
+        } else {
+            result.append(solarSeg)
+        }
+    }
+    return result
 }

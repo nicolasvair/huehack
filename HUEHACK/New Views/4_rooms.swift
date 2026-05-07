@@ -33,6 +33,11 @@ struct __rooms: View {
     }
 
     private func loadGroups() {
+        if demoMode {
+            groups = demoGroups
+            groupsIndices = Array(demoGroups.keys)
+            return
+        }
         sendGETGroups(ip: ip, which: nil) { response in
             groups = response
             groupsIndices = response.map { $0.key }

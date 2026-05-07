@@ -87,7 +87,7 @@ struct __rules: View {
                     Image(systemName: "dial.medium").font(.caption)
                     Text(miredsOffset == 0 ? "offset" : "\(miredsOffset > 0 ? "+" : "")\(miredsOffset)").font(.caption)
                 }
-                .foregroundStyle(miredsOffset == 0 ? .secondary : .accent)
+                .foregroundStyle(miredsOffset == 0 ? AnyShapeStyle(.secondary) : AnyShapeStyle(.accent))
             }
             Button {
                 locationManager.getSingleLocation()
@@ -145,22 +145,15 @@ struct __rules: View {
 
     @ViewBuilder
     private var floatingButtons: some View {
+        let needsUpdate = listOfSegments.contains(where: { $0.synced == .notSynced || $0.hourChanged })
         VStack {
             Spacer()
             HStack {
                 Spacer()
-                VStack(alignment: .trailing, spacing: 8) {
-                    if listOfSegments.contains(where: { $0.synced == .notSynced }) {
-                        Button { applyColorUpdate() } label: {
-                            Button_With_Icon(text: "update colors", icon: "slider.horizontal.below.sun.max")
-                                .foregroundStyle(.updateColors)
-                        }
-                    }
-                    if listOfSegments.contains(where: { $0.hourChanged }) {
-                        Button { applySunHoursUpdate() } label: {
-                            Button_With_Icon(text: "update sun hours", icon: "clock.arrow.trianglehead.2.counterclockwise.rotate.90")
-                                .foregroundStyle(.sunHours)
-                        }
+                if needsUpdate {
+                    Button { applyUpdate() } label: {
+                        Button_With_Icon(text: "Update", icon: "arrow.trianglehead.2.clockwise")
+                            .foregroundStyle(.accent)
                     }
                 }
             }
@@ -169,6 +162,14 @@ struct __rules: View {
     }
 
     // MARK: - Segment row
+
+    private func timeStr(_ dc: DateComponents) -> String {
+        "\(dc.hour!)h\(String(format: "%02d", dc.minute!))"
+    }
+
+    private func endTime(for index: Int) -> DateComponents {
+        listOfSegments[(index + 1) % listOfSegments.count].hourStart
+    }
 
     @ViewBuilder
     private func segmentRow(segment: Segment, index: Int) -> some View {
@@ -196,17 +197,17 @@ struct __rules: View {
                     HStack(spacing: 4) {
                         Image(systemName: "clock.arrow.trianglehead.2.counterclockwise.rotate.90")
                             .font(.caption)
-                        Text("\(segment.hourStart.hour!)h\(String(format: "%02d", segment.hourStart.minute!))")
+                        Text(timeStr(segment.hourStart))
                             .italic()
                             .strikethrough()
                         Image(systemName: "arrowshape.right")
                             .font(.caption)
-                        Text("\(newHour.hour!)h\(String(format: "%02d", newHour.minute!))")
+                        Text(timeStr(newHour))
                     }
                     .foregroundColor(.sunHours)
                     .font(.footnote)
                 } else {
-                    Text("\(segment.hourStart.hour!)h\(String(format: "%02d", segment.hourStart.minute!))")
+                    Text(timeStr(segment.hourStart))
                         .font(.footnote)
                 }
             }
@@ -231,6 +232,14 @@ struct __rules: View {
     // MARK: - Data loading
 
     private func loadGroups() {
+        if demoMode {
+            groups = demoGroups
+            groupsIndices = Array(demoGroups.keys)
+            if selectedGroupIndex.isEmpty, let first = groupsIndices.sorted().first {
+                selectedGroupIndex = first
+            }
+            return
+        }
         sendGETGroups(ip: ip, which: nil) { response in
             groups = response
             groupsIndices = response.map { $0.key }
@@ -243,6 +252,10 @@ struct __rules: View {
     private func loadSegments() {
         guard !selectedGroupIndex.isEmpty, let groupIdx = Int(selectedGroupIndex) else { return }
         miredsOffset = UserDefaults.standard.integer(forKey: "huehack-offset-\(selectedGroupIndex)")
+        if demoMode {
+            listOfSegments = demoSegments
+            return
+        }
         isLoading = true
         getSegmentFromRulesForGroup(selectedGroupIndex: groupIdx) { bridgeSegments in
             isLoading = false
@@ -274,7 +287,7 @@ struct __rules: View {
         }
     }
 
-    private func applySunHoursUpdate() {
+    private func applyUpdate() {
         guard let groupIdx = Int(selectedGroupIndex) else { return }
         var updated = listOfSegments
         for i in updated.indices where updated[i].hourChanged {
@@ -288,15 +301,6 @@ struct __rules: View {
             alertMessage = response
             showAlert = true
             listOfSegments = updated.map { var s = $0; s.synced = .synced; return s }
-        }
-    }
-
-    private func applyColorUpdate() {
-        guard let groupIdx = Int(selectedGroupIndex) else { return }
-        createRulesFromlistOfSegments(listOfSegments: segmentsWithOffset(listOfSegments), indexGroup: groupIdx) { response in
-            alertMessage = response
-            showAlert = true
-            for i in listOfSegments.indices { listOfSegments[i].synced = .synced }
         }
     }
 }

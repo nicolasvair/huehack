@@ -41,6 +41,7 @@ struct __overview: View {
             .padding()
         }
         .onAppear {
+            if demoMode { isLoadingState = false; return }
             sendGETSensors(ip: ip, which: String(indexGlobalOnOff)) { response in
                 if let sensor = response.values.first, let status = sensor.state.status {
                     globalOn = status == 0

@@ -8,7 +8,9 @@ The user is in France — sunrise/sunset times vary significantly across the yea
 ## Architecture Overview
 
 ### Entry Point
-`HUEHACKApp.swift` — `RootView` checks `@AppStorage("hueBridgeIP")` and `@AppStorage("usernameKey")`: if both are set, shows `SetHoursView()`; otherwise shows `_a_welcome()` (onboarding).
+`HUEHACKApp.swift` — `RootView` checks `@AppStorage("hueBridgeIP")` and `@AppStorage("usernameKey")`: if both are set, shows `SetHoursView()` (old view — **not yet updated to route to new views**); otherwise shows `_a_welcome()` (onboarding).
+
+> **Known issue**: the `New Views/` are all implemented and wired but **orphaned** — `RootView` routes to `SetHoursView()` when the bridge is already configured, so `1_overview`, `2_rules`, `3_settings` are never reached. The fix is in `HUEHACK-DEV/`: use `@AppStorage("hueOnboardingComplete")` flag and route to `__rooms()` (new grid view) with a settings toolbar button.
 
 ### File Structure
 ```
@@ -25,18 +27,18 @@ HUEHACK/
 │   ├── Location.swift           # GPS + reverse geocoding (LocationManager)
 │   └── Kelvins + mireds.swift  # Color temp conversions + SwiftUI Color extension
 │
-├── New Views/                   # Active UI (onboarding flow)
+├── New Views/                   # New UI — fully implemented but orphaned (not reached from RootView)
 │   ├── 0a_welcome.swift         # Intro screen → navigates to 0b
 │   ├── 0b_welcome.swift         # Bridge discovery + pairing (functional, writes AppStorage) → navigates to 0d
 │   ├── 0c_welcome.swift         # Backup config decision (stub — not in active flow)
 │   ├── 0d_welcome.swift         # Room selection (functional — real groups from bridge, multi-select) → navigates to 0e
 │   ├── 0e_welcome.swift         # Sensor installation (functional — calls installHUEHACKSensors) → navigates to 0f
-│   ├── 0f_welcome.swift         # Solar segment config (functional — group picker + send to bridge wired) → navigates to SetHoursView
+│   ├── 0f_welcome.swift         # Solar segment config (functional — group picker + send to bridge wired)
 │   ├── 1_overview.swift         # Main dashboard (toggle wired to sendGlobalOnOff, reads current state on appear)
 │   ├── 2_rules.swift            # Rules list (functional — loads bridge + solar compare, update buttons wired)
 │   └── 3_settings.swift         # Settings page (functional — bridge IP, masked username, sensor indices, reset)
 │
-├── OldViews/                    # Legacy UI (currently active entry point)
+├── OldViews/                    # Legacy UI — currently active entry point when bridge is configured
 │   ├── SetHoursView.swift       # Main working view — group picker + segment list
 │   ├── EditSegment.swift        # Edit one segment (time + temp slider + preview)
 │   └── ...                     # Other old views
@@ -70,6 +72,8 @@ var ip: String { get { AppConfig.shared.ip } set { AppConfig.shared.ip = newValu
 // … same for username, indexGlobalOnOff, indexTimer
 ```
 All API files reference these globals — no changes needed in API layer when config changes.
+
+> **DEV improvement (to merge)**: `HUEHACK-DEV/API/AppConfig.swift` prefixes UserDefaults keys with `"hue"` (e.g. `"hueIndexGlobalOnOff"` instead of `"indexGlobalOnOff"`) to avoid collisions, makes the class `final`, and adds module-level computed `var` aliases so existing API callers keep working unchanged.
 
 ## The Circadian Hack — How It Works
 1. Two virtual sensors are created on the bridge:
@@ -165,12 +169,22 @@ All three do basically the same thing. Should become one canonical function.
 - Slider `globalDim` supprimé — pas d'API de dim global sur bridge Hue v1
 - Scènes hardcodées laissées en place (fonctionnalité future)
 
+### Priority 6 — Fusionner HUEHACK-DEV dans HUEHACK
+Le dossier `HUEHACK-DEV/` (copié dans le repo pour référence) contient des améliorations non fusionnées :
+
+1. **`HUEHACKApp.swift`** : router vers `__rooms()` via `@AppStorage("hueOnboardingComplete")` + bouton settings toolbar
+2. **`New Views/4_rooms.swift`** : nouvelle vue principale — grid 2 colonnes de RoomCards (couleur CT live + nom)
+3. **`New Views/0b1_welcome.swift` + `0b2_welcome.swift`** : split de l'écran discovery/pairing en deux étapes
+4. **`API/genericAPIcalls.swift`** : fix IP hardcodée → guard statement dynamique
+5. **`API/AppConfig.swift`** : clés UserDefaults préfixées + aliases module-level + `final class`
+6. **`API/Rules.swift`** : `saveSegmentMeta()` pour persister name+show state par groupe, nettoyage commentaires morts
+
 ### Onboarding flow — état actuel
 ```
-0a → 0b (discovery+pairing) → 0e (installation) → SetHoursView
+0a → 0b (discovery+pairing) → 0d (room selection) → 0e (installation) → 0f (solar config) → [orphan]
 ```
-Les écrans `0c` et `0d` existent mais ne sont pas dans la navigation active.
-`0c` (backup config) et `0d` (room selection) sont des stubs à intégrer si besoin.
+`RootView` route vers `SetHoursView()` (vieux) si bridge configuré — les nouvelles vues ne sont jamais atteintes.
+**Cible post-fusion** : `RootView` route vers `__rooms()` si `hueOnboardingComplete == true`.
 
 ## Build Info
 - No external package manager (SunCalc embedded locally)

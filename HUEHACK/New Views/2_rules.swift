@@ -28,123 +28,9 @@ struct __rules: View {
 
     var body: some View {
         VStack(spacing: 0) {
-
-            // Top bar
-            HStack {
-                // Room picker — hidden when navigated from __rooms
-                if presetGroupIndex.isEmpty {
-                    if groups.isEmpty {
-                        Text("Chargement…").foregroundStyle(.secondary)
-                    } else {
-                        Menu {
-                            ForEach(groupsIndices.sorted(), id: \.self) { idx in
-                                if let name = groups[idx]?.name {
-                                    Button(name) { selectedGroupIndex = idx }
-                                }
-                            }
-                        } label: {
-                            HStack(spacing: 4) {
-                                Text(groups[selectedGroupIndex]?.name ?? "Choisir une pièce")
-                                    .fontWeight(.semibold)
-                                Image(systemName: "chevron.down")
-                                    .font(.caption)
-                            }
-                        }
-                    }
-                }
-
-                Spacer()
-
-                // Offset badge
-                Button { showOffsetSheet = true } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "dial.medium")
-                            .font(.caption)
-                        Text(miredsOffset == 0 ? "offset" : "\(miredsOffset > 0 ? "+" : "")\(miredsOffset)")
-                            .font(.caption)
-                    }
-                    .foregroundStyle(miredsOffset == 0 ? .secondary : .accent)
-                }
-
-                // Location
-                Button {
-                    locationManager.getSingleLocation()
-                    locationManager.fetchCityName()
-                } label: {
-                    HStack(spacing: 4) {
-                        Text(locationManager.cityName ?? "Localisation")
-                        Image(systemName: "scope")
-                    }
-                    .foregroundStyle(.accent)
-                    .font(.caption)
-                }
-            }
-            .padding(.horizontal)
-            .padding(.vertical, 8)
-
-            // Edit / add row
-            HStack {
-                Button(isEditing ? "Done" : "Edit") { isEditing.toggle() }
-                Spacer()
-                Button {
-                    createSegmentForNow(listOfSegments: &listOfSegments)
-                } label: {
-                    Image(systemName: "plus")
-                }
-            }
-            .padding(.horizontal)
-            .padding(.bottom, 4)
-
-            ZStack {
-                List {
-                    ForEach(listOfSegments.indices, id: \.self) { index in
-                        let segment = listOfSegments[index]
-                        if segment.show ?? true || isEditing {
-                            NavigationLink {
-                                EditSegment(
-                                    index: index,
-                                    listOfSegments: $listOfSegments,
-                                    groupIndex: Int(selectedGroupIndex) ?? 0
-                                )
-                            } label: {
-                                segmentRow(segment: segment, index: index)
-                            }
-                        }
-                    }
-                }
-                .refreshable { loadSegments() }
-
-                if isLoading { ProgressView() }
-
-                // Floating action buttons
-                VStack {
-                    Spacer()
-                    HStack {
-                        Spacer()
-                        VStack(alignment: .trailing, spacing: 8) {
-                            if listOfSegments.contains(where: { $0.synced == .notSynced }) {
-                                Button { applyColorUpdate() } label: {
-                                    Button_With_Icon(
-                                        text: "update colors",
-                                        icon: "slider.horizontal.below.sun.max"
-                                    )
-                                    .foregroundStyle(.updateColors)
-                                }
-                            }
-                            if listOfSegments.contains(where: { $0.hourChanged }) {
-                                Button { applySunHoursUpdate() } label: {
-                                    Button_With_Icon(
-                                        text: "update sun hours",
-                                        icon: "clock.arrow.trianglehead.2.counterclockwise.rotate.90"
-                                    )
-                                    .foregroundStyle(.sunHours)
-                                }
-                            }
-                        }
-                    }
-                }
-                .padding()
-            }
+            topBar
+            editBar
+            segmentList
         }
         .onAppear {
             if !presetGroupIndex.isEmpty {
@@ -168,6 +54,118 @@ struct __rules: View {
         } message: {
             Text(alertMessage)
         }
+    }
+
+    // MARK: - Sub-views
+
+    @ViewBuilder
+    private var topBar: some View {
+        HStack {
+            if presetGroupIndex.isEmpty {
+                if groups.isEmpty {
+                    Text("Chargement…").foregroundStyle(.secondary)
+                } else {
+                    Menu {
+                        ForEach(groupsIndices.sorted(), id: \.self) { idx in
+                            if let name = groups[idx]?.name {
+                                Button(name) { selectedGroupIndex = idx }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(groups[selectedGroupIndex]?.name ?? "Choisir une pièce")
+                                .fontWeight(.semibold)
+                            Image(systemName: "chevron.down")
+                                .font(.caption)
+                        }
+                    }
+                }
+            }
+            Spacer()
+            Button { showOffsetSheet = true } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "dial.medium").font(.caption)
+                    Text(miredsOffset == 0 ? "offset" : "\(miredsOffset > 0 ? "+" : "")\(miredsOffset)").font(.caption)
+                }
+                .foregroundStyle(miredsOffset == 0 ? .secondary : .accent)
+            }
+            Button {
+                locationManager.getSingleLocation()
+                locationManager.fetchCityName()
+            } label: {
+                HStack(spacing: 4) {
+                    Text(locationManager.cityName ?? "Localisation")
+                    Image(systemName: "scope")
+                }
+                .foregroundStyle(.accent)
+                .font(.caption)
+            }
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+    }
+
+    @ViewBuilder
+    private var editBar: some View {
+        HStack {
+            Button(isEditing ? "Done" : "Edit") { isEditing.toggle() }
+            Spacer()
+            Button { createSegmentForNow(listOfSegments: &listOfSegments) } label: {
+                Image(systemName: "plus")
+            }
+        }
+        .padding(.horizontal)
+        .padding(.bottom, 4)
+    }
+
+    @ViewBuilder
+    private var segmentList: some View {
+        ZStack {
+            List {
+                ForEach(listOfSegments.indices, id: \.self) { index in
+                    let segment = listOfSegments[index]
+                    if segment.show ?? true || isEditing {
+                        NavigationLink {
+                            EditSegment(
+                                index: index,
+                                listOfSegments: $listOfSegments,
+                                groupIndex: Int(selectedGroupIndex) ?? 0
+                            )
+                        } label: {
+                            segmentRow(segment: segment, index: index)
+                        }
+                    }
+                }
+            }
+            .refreshable { loadSegments() }
+            if isLoading { ProgressView() }
+            floatingButtons
+        }
+    }
+
+    @ViewBuilder
+    private var floatingButtons: some View {
+        VStack {
+            Spacer()
+            HStack {
+                Spacer()
+                VStack(alignment: .trailing, spacing: 8) {
+                    if listOfSegments.contains(where: { $0.synced == .notSynced }) {
+                        Button { applyColorUpdate() } label: {
+                            Button_With_Icon(text: "update colors", icon: "slider.horizontal.below.sun.max")
+                                .foregroundStyle(.updateColors)
+                        }
+                    }
+                    if listOfSegments.contains(where: { $0.hourChanged }) {
+                        Button { applySunHoursUpdate() } label: {
+                            Button_With_Icon(text: "update sun hours", icon: "clock.arrow.trianglehead.2.counterclockwise.rotate.90")
+                                .foregroundStyle(.sunHours)
+                        }
+                    }
+                }
+            }
+        }
+        .padding()
     }
 
     // MARK: - Segment row

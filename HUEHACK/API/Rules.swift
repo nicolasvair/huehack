@@ -365,12 +365,23 @@ func createSegmentForNow(listOfSegments: inout [Segment]) {
     for i in listOfSegments.indices {
 
         if listOfSegments.indices.contains(i+1) {
-            if let hour1 = listOfSegments[i].hourStart.hour, let minute1 = listOfSegments[i].hourStart.minute, let hour2 = listOfSegments[i+1].hourStart.hour, let minute2 = listOfSegments[i+1].hourStart.minute, let hourNow = now.hour, let minuteNow = now.minute, (hour1, minute1) < (hourNow, minuteNow) && (hourNow, minuteNow) < (hour2, minute2)  {
+            let h1 = listOfSegments[i].hourStart.hour ?? 0
+            let m1 = listOfSegments[i].hourStart.minute ?? 0
+            let h2 = listOfSegments[i+1].hourStart.hour ?? 0
+            let m2 = listOfSegments[i+1].hourStart.minute ?? 0
+            let hn = now.hour ?? 0
+            let mn = now.minute ?? 0
+            if (h1, m1) < (hn, mn) && (hn, mn) < (h2, m2) {
                 currentTemp = listOfSegments[i].temp
             }
-        }
-        else {
-            if let hour1 = listOfSegments[i].hourStart.hour, let minute1 = listOfSegments[i].hourStart.minute, let hour2 = listOfSegments[0].hourStart.hour, let minute2 = listOfSegments[0].hourStart.minute, let hourNow = now.hour, let minuteNow = now.minute, (hour1, minute1) < (hourNow, minuteNow) && (hourNow, minuteNow) < (hour2, minute2) {
+        } else {
+            let h1 = listOfSegments[i].hourStart.hour ?? 0
+            let m1 = listOfSegments[i].hourStart.minute ?? 0
+            let h2 = listOfSegments[0].hourStart.hour ?? 0
+            let m2 = listOfSegments[0].hourStart.minute ?? 0
+            let hn = now.hour ?? 0
+            let mn = now.minute ?? 0
+            if (h1, m1) < (hn, mn) && (hn, mn) < (h2, m2) {
                 currentTemp = listOfSegments[i].temp
             }
         }

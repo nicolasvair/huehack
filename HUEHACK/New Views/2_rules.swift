@@ -171,9 +171,31 @@ struct __rules: View {
         listOfSegments[(index + 1) % listOfSegments.count].hourStart
     }
 
+    private var currentSegmentIndex: Int? {
+        guard !listOfSegments.isEmpty else { return nil }
+        let now = Calendar.current.dateComponents([.hour, .minute], from: Date())
+        let nowAdj = (now.hour! < 3 ? now.hour! + 24 : now.hour!) * 60 + (now.minute ?? 0)
+        var best: Int? = nil
+        var bestTime = -1
+        for (i, seg) in listOfSegments.enumerated() {
+            let h = seg.hourStart.hour ?? 0
+            let adj = (h < 3 ? h + 24 : h) * 60 + (seg.hourStart.minute ?? 0)
+            if adj <= nowAdj && adj > bestTime {
+                bestTime = adj
+                best = i
+            }
+        }
+        return best ?? (listOfSegments.isEmpty ? nil : listOfSegments.count - 1)
+    }
+
     @ViewBuilder
     private func segmentRow(segment: Segment, index: Int) -> some View {
+        let isCurrent = index == currentSegmentIndex
         HStack {
+            Image(systemName: "circle.fill")
+                .font(.system(size: 7))
+                .foregroundStyle(isCurrent ? AnyShapeStyle(.accent) : AnyShapeStyle(.clear))
+
             if segment.synced != .synced {
                 Image(systemName: "slider.horizontal.below.sun.max")
                     .foregroundStyle(.updateColors)

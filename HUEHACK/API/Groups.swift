@@ -147,6 +147,41 @@ func sendGETGroups(ip: String, which: String?, completion: @escaping ([String:Ro
 
 
 
+func sendPOSTGroup(ip: String, name: String, lights: [String], completion: @escaping (Bool) -> Void) {
+    guard let url = URL(string: "http://\(ip)/api/\(username)/groups") else { return }
+    var request = URLRequest(url: url)
+    request.httpMethod = TypeRequest.POST.rawValue
+    let lightsJSON = lights.map { "\"\($0)\"" }.joined(separator: ",")
+    let body = "{\"name\":\"\(name)\",\"type\":\"Room\",\"class\":\"Other\",\"lights\":[\(lightsJSON)]}"
+    request.httpBody = body.data(using: .utf8)
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    URLSession.shared.dataTask(with: request) { _, _, error in
+        completion(error == nil)
+    }.resume()
+}
+
+func sendPUTGroup(ip: String, groupIndex: Int, name: String, lights: [String], completion: @escaping (Bool) -> Void) {
+    guard let url = URL(string: "http://\(ip)/api/\(username)/groups/\(groupIndex)") else { return }
+    var request = URLRequest(url: url)
+    request.httpMethod = TypeRequest.PUT.rawValue
+    let lightsJSON = lights.map { "\"\($0)\"" }.joined(separator: ",")
+    let body = "{\"name\":\"\(name)\",\"lights\":[\(lightsJSON)]}"
+    request.httpBody = body.data(using: .utf8)
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    URLSession.shared.dataTask(with: request) { _, _, error in
+        completion(error == nil)
+    }.resume()
+}
+
+func sendDELETEGroup(ip: String, groupIndex: Int, completion: @escaping (Bool) -> Void) {
+    guard let url = URL(string: "http://\(ip)/api/\(username)/groups/\(groupIndex)") else { return }
+    var request = URLRequest(url: url)
+    request.httpMethod = TypeRequest.DELETE.rawValue
+    URLSession.shared.dataTask(with: request) { _, _, error in
+        completion(error == nil)
+    }.resume()
+}
+
 func sendPUTGroupRequest(ip: String, groupIndex: Int, ct: Int, completion: @escaping (String) -> Void) {
     guard let url = URL(string: "http://\(ip)/api/\(username)/groups/\(groupIndex)/action") else {
          print("Invalid URL")

@@ -29,6 +29,17 @@ struct __settings: View {
                 }
             }
 
+            Section("Pièces & lumières") {
+                NavigationLink("Gérer les pièces") {
+                    __roomsManage()
+                        .navigationTitle("Pièces")
+                }
+                NavigationLink("Gérer les lumières") {
+                    __lightsManage()
+                        .navigationTitle("Lumières")
+                }
+            }
+
             Section("Capteurs HUEHACK") {
                 LabeledContent("Global on/off") {
                     Text("\(globalOnOffIndex > 0 ? globalOnOffIndex : 171)")

@@ -21,7 +21,12 @@ struct __rooms: View {
                             __rules(presetGroupIndex: idx)
                                 .navigationTitle(room.name)
                         } label: {
-                            RoomCard(name: room.name, ct: room.action.ct ?? 300, offset: loadRoomOffset(idx))
+                            RoomCard(
+                                name: room.name,
+                                ct: room.action.ct ?? 300,
+                                offset: loadRoomOffset(idx),
+                                linkedToName: loadLinkedToName(idx, groups: groups)
+                            )
                         }
                         .buttonStyle(.plain)
                     }
@@ -49,6 +54,7 @@ struct RoomCard: View {
     let name: String
     let ct: Int
     let offset: Int
+    var linkedToName: String? = nil
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
@@ -61,6 +67,13 @@ struct RoomCard: View {
                 Text(name)
                     .fontWeight(.semibold)
                     .foregroundStyle(.black.opacity(0.75))
+                if let target = linkedToName {
+                    HStack(spacing: 3) {
+                        Image(systemName: "link").font(.caption2)
+                        Text("linked to \(target)").font(.caption2)
+                    }
+                    .foregroundStyle(.black.opacity(0.55))
+                }
                 if offset != 0 {
                     Text("\(offset > 0 ? "+" : "")\(offset) mir")
                         .font(.caption2)
@@ -74,6 +87,11 @@ struct RoomCard: View {
 
 func loadRoomOffset(_ groupIndex: String) -> Int {
     UserDefaults.standard.integer(forKey: "huehack-offset-\(groupIndex)")
+}
+
+func loadLinkedToName(_ groupIndex: String, groups: [String: RoomResponse]) -> String? {
+    guard let masterIdx = UserDefaults.standard.string(forKey: "huehack-linkedTo-\(groupIndex)") else { return nil }
+    return groups[masterIdx]?.name
 }
 
 #Preview {

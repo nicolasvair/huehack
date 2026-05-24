@@ -56,9 +56,23 @@ struct EditSegment: View {
                     .cornerRadius(15)
                     .padding(.horizontal)
 
-                Text("Temp : \(Int(tempKelvins)) °K")
+                let originalKelvin = 1_000_000 / listOfSegments[index].temp
+                let currentKelvin = Int(tempKelvins)
+                if listOfSegments[index].tempChanged && currentKelvin != originalKelvin {
+                    HStack(spacing: 8) {
+                        Text("\(originalKelvin)")
+                            .italic()
+                            .strikethrough()
+                        Image(systemName: "arrowshape.right")
+                        Text("\(currentKelvin) °K")
+                    }
                     .padding()
                     .font(.title2)
+                } else {
+                    Text("Temp : \(currentKelvin) °K")
+                        .padding()
+                        .font(.title2)
+                }
             }
 
             Slider(value: $tempKelvins, in: 2000...5000, onEditingChanged: { bool in
@@ -78,11 +92,14 @@ struct EditSegment: View {
 
         }
         .onAppear {
-            tempKelvins = Double(1000000 / listOfSegments[index].temp)
+            let initialTemp = listOfSegments[index].newTemp ?? listOfSegments[index].temp
+            tempKelvins = Double(1000000 / initialTemp)
         }
         .onChange(of: tempKelvins) { _, newValue in
             tempMireds = Double(1000000 / newValue)
-            listOfSegments[index].temp = Int(tempMireds)
+            let newMireds = Int(tempMireds)
+            listOfSegments[index].newTemp = newMireds
+            listOfSegments[index].tempChanged = (newMireds != listOfSegments[index].temp)
             listOfSegments[index].synced = .notSynced
 
             if sliderIsEditing {

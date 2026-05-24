@@ -268,11 +268,6 @@ struct __rules: View {
                 .font(.system(size: 7))
                 .foregroundStyle(isCurrent ? AnyShapeStyle(.accent) : AnyShapeStyle(.clear))
 
-            if segment.synced != .synced {
-                Image(systemName: "slider.horizontal.below.sun.max")
-                    .foregroundStyle(.updateColors)
-            }
-
             if isEditing {
                 Button {
                     listOfSegments[index].show = !(listOfSegments[index].show ?? true)
@@ -311,11 +306,25 @@ struct __rules: View {
 
             Spacer()
 
-            Text("\(segment.temp.miredsToKelvin) °K")
+            if segment.tempChanged, let newTemp = segment.newTemp {
+                HStack(spacing: 4) {
+                    Text("\(segment.temp.miredsToKelvin)")
+                        .italic()
+                        .strikethrough()
+                    Image(systemName: "arrowshape.right")
+                        .font(.caption)
+                    Text("\(newTemp.miredsToKelvin) °K")
+                }
+                .foregroundColor(.updateColors)
                 .font(.caption)
+            } else {
+                Text("\(segment.temp.miredsToKelvin) °K")
+                    .font(.caption)
+            }
 
-            // Color swatch shows offset-adjusted color
-            let displayTemp = min(500, max(153, segment.temp + miredsOffset))
+            // Color swatch shows offset-adjusted color (uses pending newTemp if any)
+            let baseTemp = segment.newTemp ?? segment.temp
+            let displayTemp = min(500, max(153, baseTemp + miredsOffset))
             Rectangle()
                 .frame(width: 50)
                 .foregroundStyle(Color(mireds: Double(displayTemp)))
@@ -451,6 +460,13 @@ struct __rules: View {
                 updated[i].hourStart = newHour
                 updated[i].hourChanged = false
                 updated[i].newHourStart = nil
+            }
+        }
+        for i in updated.indices where updated[i].tempChanged {
+            if let nt = updated[i].newTemp {
+                updated[i].temp = nt
+                updated[i].tempChanged = false
+                updated[i].newTemp = nil
             }
         }
         createRulesFromlistOfSegments(listOfSegments: segmentsWithOffset(updated), indexGroup: groupIdx) { response in

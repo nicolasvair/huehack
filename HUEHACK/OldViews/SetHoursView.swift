@@ -20,6 +20,8 @@ struct Segment: Identifiable {
     var show: Bool?
     var hourChanged: Bool = false
     var newHourStart: DateComponents? = nil
+    var tempChanged: Bool = false
+    var newTemp: Int? = nil
 }
 
 enum Synced {

@@ -447,7 +447,30 @@ struct __rules: View {
             alertMessage = response
             showAlert = true
             listOfSegments = updated.map { var s = $0; s.synced = .synced; return s }
+            cascadeToFollowers(masterSegments: updated)
         }
+    }
+
+    /// After updating a master, push the same segments (with each follower's own offset) to follower bridges.
+    private func cascadeToFollowers(masterSegments: [Segment]) {
+        guard !followers.isEmpty else { return }
+        var remaining = followers
+        var pushed = 0
+        func pushNext() {
+            guard let followerIdxStr = remaining.first else {
+                if pushed > 0 {
+                    alertMessage += "\n→ \(pushed) follower(s) mis à jour"
+                }
+                return
+            }
+            remaining.removeFirst()
+            guard let followerIdx = Int(followerIdxStr) else { pushNext(); return }
+            createRulesFromlistOfSegments(listOfSegments: masterSegments, indexGroup: followerIdx) { _ in
+                pushed += 1
+                pushNext()
+            }
+        }
+        pushNext()
     }
 }
 

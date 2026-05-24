@@ -21,6 +21,9 @@ struct __rules: View {
     @State private var miredsOffset: Int = 0
     @State private var showOffsetSheet = false
 
+    @State private var linkedTo: String? = nil   // master groupIndex if this room is a follower
+    @State private var followers: [String] = []  // child groupIndices if this room is a master
+
     @State private var isEditing = false
     @State private var isLoading = false
     @State private var showAlert = false
@@ -82,6 +85,16 @@ struct __rules: View {
                 }
             }
             Spacer()
+            linkMenu
+            if linkedTo != nil {
+                Button { unlinkCurrent() } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "link.badge.minus").font(.caption)
+                        Text("unlink").font(.caption)
+                    }
+                    .foregroundStyle(.accent)
+                }
+            }
             Button { showOffsetSheet = true } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "dial.medium").font(.caption)
@@ -103,6 +116,55 @@ struct __rules: View {
         }
         .padding(.horizontal)
         .padding(.vertical, 8)
+    }
+
+    @ViewBuilder
+    private var linkMenu: some View {
+        // A master (room that has followers) cannot itself be linked.
+        let isMaster = !followers.isEmpty
+        Menu {
+            // Link to — only available if not currently a master
+            if isMaster {
+                Section("Master — \(followers.count) room(s) suivent celle-ci") {
+                    Text("Impossible de lier un master").foregroundStyle(.secondary)
+                }
+            } else {
+                Menu("Link to") {
+                    let candidates = linkCandidates()
+                    if candidates.isEmpty {
+                        Text("Aucune room disponible")
+                    } else {
+                        ForEach(candidates, id: \.self) { idx in
+                            if let name = groups[idx]?.name {
+                                Button(name) { linkCurrent(to: idx) }
+                            }
+                        }
+                    }
+                }
+            }
+            Menu("Copy from") {
+                let candidates = copyCandidates()
+                if candidates.isEmpty {
+                    Text("Aucune room disponible")
+                } else {
+                    ForEach(candidates, id: \.self) { idx in
+                        if let name = groups[idx]?.name {
+                            Button(name) { copySegments(from: idx) }
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: linkedTo != nil ? "link.circle.fill" : "link").font(.caption)
+                if let master = linkedTo, let name = groups[master]?.name {
+                    Text("→ \(name)").font(.caption)
+                } else {
+                    Text("link").font(.caption)
+                }
+            }
+            .foregroundStyle(linkedTo != nil ? AnyShapeStyle(.accent) : AnyShapeStyle(.secondary))
+        }
     }
 
     @ViewBuilder
@@ -272,8 +334,12 @@ struct __rules: View {
     }
 
     private func loadSegments() {
-        guard !selectedGroupIndex.isEmpty, let groupIdx = Int(selectedGroupIndex) else { return }
+        guard !selectedGroupIndex.isEmpty else { return }
         miredsOffset = UserDefaults.standard.integer(forKey: "huehack-offset-\(selectedGroupIndex)")
+        reloadLinkState()
+        // When linked, fetch segments from the MASTER group's rules; otherwise our own.
+        let fetchIdxString = linkedTo ?? selectedGroupIndex
+        guard let groupIdx = Int(fetchIdxString) else { return }
         if demoMode {
             listOfSegments = demoSegments
             return
@@ -306,6 +372,64 @@ struct __rules: View {
             var s = $0
             s.temp = min(500, max(153, s.temp + miredsOffset))
             return s
+        }
+    }
+
+    // MARK: - Link helpers
+
+    private static func linkKey(_ idx: String) -> String { "huehack-linkedTo-\(idx)" }
+
+    private func reloadLinkState() {
+        linkedTo = UserDefaults.standard.string(forKey: Self.linkKey(selectedGroupIndex))
+        followers = groupsIndices.filter { other in
+            other != selectedGroupIndex &&
+            UserDefaults.standard.string(forKey: Self.linkKey(other)) == selectedGroupIndex
+        }
+    }
+
+    /// Rooms that can be a link target for the current room.
+    /// Exclude: self, current's existing master, any room that is itself a follower (one-level rule).
+    private func linkCandidates() -> [String] {
+        groupsIndices.sorted().filter { idx in
+            guard idx != selectedGroupIndex else { return false }
+            // exclude followers (a follower cannot be a master)
+            if UserDefaults.standard.string(forKey: Self.linkKey(idx)) != nil { return false }
+            return true
+        }
+    }
+
+    /// Rooms whose segments we can copy from. Any other room (we'll read its bridge rules).
+    private func copyCandidates() -> [String] {
+        groupsIndices.sorted().filter { $0 != selectedGroupIndex }
+    }
+
+    private func linkCurrent(to master: String) {
+        UserDefaults.standard.set(master, forKey: Self.linkKey(selectedGroupIndex))
+        loadSegments()
+    }
+
+    private func unlinkCurrent() {
+        // Snapshot — segments stay as displayed, just drop the link.
+        UserDefaults.standard.removeObject(forKey: Self.linkKey(selectedGroupIndex))
+        reloadLinkState()
+        // Mark segments as notSynced so user can choose to push them as their own.
+        listOfSegments = listOfSegments.map { var s = $0; s.synced = .notSynced; return s }
+    }
+
+    private func copySegments(from sourceIdx: String) {
+        guard let groupIdx = Int(sourceIdx) else { return }
+        isLoading = true
+        getSegmentFromRulesForGroup(selectedGroupIndex: groupIdx) { bridgeSegments in
+            isLoading = false
+            // Merge with solar to recompute hours like loadSegments does.
+            var merged = mergeSegmentsWithSolar(bridgeSegments: bridgeSegments, locationManager: locationManager)
+            merged = merged.sorted {
+                let h0 = ($0.hourStart.hour! < 3 ? $0.hourStart.hour! + 24 : $0.hourStart.hour!) * 60 + ($0.hourStart.minute ?? 0)
+                let h1 = ($1.hourStart.hour! < 3 ? $1.hourStart.hour! + 24 : $1.hourStart.hour!) * 60 + ($1.hourStart.minute ?? 0)
+                return h0 < h1
+            }
+            // Mark as notSynced so the Update button shows.
+            listOfSegments = merged.map { var s = $0; s.synced = .notSynced; return s }
         }
     }
 

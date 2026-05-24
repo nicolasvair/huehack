@@ -26,6 +26,7 @@ struct __rules: View {
 
     @State private var isEditing = false
     @State private var isLoading = false
+    @State private var hasLoadedOnce = false
     @State private var showAlert = false
     @State private var alertMessage = ""
 
@@ -42,8 +43,17 @@ struct __rules: View {
             loadGroups()
             locationManager.getSingleLocation()
             locationManager.fetchCityName()
+            if !hasLoadedOnce, !selectedGroupIndex.isEmpty {
+                hasLoadedOnce = true
+                loadSegments()
+            }
         }
         .onChange(of: selectedGroupIndex) { _, _ in
+            loadSegments()
+        }
+        .onChange(of: locationManager.latitude) { oldValue, newValue in
+            // Only reload on FIRST GPS fix (0 → real), not on subsequent updates that would wipe local edits.
+            guard oldValue == 0.0, newValue != 0.0, !selectedGroupIndex.isEmpty else { return }
             loadSegments()
         }
         .onChange(of: miredsOffset) { _, newValue in

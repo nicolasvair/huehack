@@ -85,7 +85,7 @@ func sendGETSensors(ip: String, which: String?, completion: @escaping ([String:S
                 if let sensor = decodeOneSensorResponse(jsonData: data) {
 //                    print(sensor)
                     let result = [which : sensor]
-                    completion(result) // Retourne les capteurs décodés
+                    DispatchQueue.main.async { completion(result) }
                 } else {
                     print("Failed to decode response")
                 }
@@ -104,7 +104,7 @@ func sendGETSensors(ip: String, which: String?, completion: @escaping ([String:S
 //                    }
 //                    print(result)
                     
-                    completion(sensors)
+                    DispatchQueue.main.async { completion(sensors) }
                 } else {
                     print("Failed to decode response")
                     //completion(nil)
@@ -206,8 +206,8 @@ private func createVirtualSensor(name: String, uniqueid: String, completion: @es
               let json = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
               let idStr = json.first?["success"] as? [String: Any],
               let id = idStr["id"] as? String,
-              let idx = Int(id) else { completion(nil); return }
-        completion(idx)
+              let idx = Int(id) else { DispatchQueue.main.async { completion(nil) }; return }
+        DispatchQueue.main.async { completion(idx) }
     }.resume()
 }
 
@@ -223,8 +223,8 @@ private func createTimerHeartbeatRule(indexTimer: Int, completion: @escaping (Bo
     URLSession.shared.dataTask(with: request) { data, _, _ in
         guard let data = data,
               let json = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
-              json.first?["success"] != nil else { completion(false); return }
-        completion(true)
+              json.first?["success"] != nil else { DispatchQueue.main.async { completion(false) }; return }
+        DispatchQueue.main.async { completion(true) }
     }.resume()
 }
 

@@ -114,8 +114,10 @@ struct _f_welcome: View {
                     }
                     Spacer()
                     if sendStatus == .success {
-                        Button_With_Icon(text: "done !", icon: "checkmark.circle", color: .fondClair)
-                            .onTapGesture { onboardingComplete = true }
+                        // Ends onboarding → the app root swaps to the rooms view.
+                        Button { onboardingComplete = true } label: {
+                            Button_With_Icon(text: "done !", icon: "checkmark.circle", color: .fondClair)
+                        }
                     } else {
                         HStack(spacing: 12) {
                             if sendStatus == .inProgress { ProgressView() }

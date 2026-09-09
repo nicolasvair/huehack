@@ -111,7 +111,7 @@ func sendGETGroups(ip: String, which: String?, completion: @escaping ([String:Ro
                 if let group = decodeOneGroupResponse(jsonData: data) {
                     print(group.name)
                     let result = [which : group]
-                    completion(result) // Retourne les capteurs décodés
+                    DispatchQueue.main.async { completion(result) }
                 } else {
                     print("Failed to decode response")
                 }
@@ -129,7 +129,7 @@ func sendGETGroups(ip: String, which: String?, completion: @escaping ([String:Ro
 //                    }
 //                    print(result)
                     
-                    completion(groups)
+                    DispatchQueue.main.async { completion(groups) }
                 } else {
                     print("Failed to decode response")
                     //completion(nil)

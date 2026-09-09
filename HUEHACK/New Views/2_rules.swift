@@ -21,8 +21,8 @@ struct __rules: View {
     @State private var miredsOffset: Int = 0
     @State private var showOffsetSheet = false
 
-    @State private var linkedTo: String? = nil   // master groupIndex if this room is a follower
-    @State private var followers: [String] = []  // child groupIndices if this room is a master
+    @State private var linkedRooms: [String] = []  // rooms sharing this room's schedule
+    @State private var linksChanged = false        // a link was just added → linked rooms need a push
 
     @State private var isEditing = false
     @State private var isLoading = false
@@ -49,6 +49,7 @@ struct __rules: View {
             }
         }
         .onChange(of: selectedGroupIndex) { _, _ in
+            linksChanged = false
             loadSegments()
         }
         .onChange(of: locationManager.latitude) { oldValue, newValue in
@@ -57,7 +58,7 @@ struct __rules: View {
             loadSegments()
         }
         .onChange(of: miredsOffset) { _, newValue in
-            UserDefaults.standard.set(newValue, forKey: "huehack-offset-\(selectedGroupIndex)")
+            setRoomOffset(newValue, for: selectedGroupIndex)
         }
         .sheet(isPresented: $showOffsetSheet) {
             OffsetEditorSheet(offset: $miredsOffset)
@@ -96,15 +97,6 @@ struct __rules: View {
             }
             Spacer()
             linkMenu
-            if linkedTo != nil {
-                Button { unlinkCurrent() } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "link.badge.minus").font(.caption)
-                        Text("unlink").font(.caption)
-                    }
-                    .foregroundStyle(.accent)
-                }
-            }
             Button { showOffsetSheet = true } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "dial.medium").font(.caption)
@@ -130,51 +122,47 @@ struct __rules: View {
 
     @ViewBuilder
     private var linkMenu: some View {
-        // A master (room that has followers) cannot itself be linked.
-        let isMaster = !followers.isEmpty
         Menu {
-            // Link to — only available if not currently a master
-            if isMaster {
-                Section("Master — \(followers.count) room(s) suivent celle-ci") {
-                    Text("Impossible de lier un master").foregroundStyle(.secondary)
-                }
-            } else {
-                Menu("Link to") {
-                    let candidates = linkCandidates()
-                    if candidates.isEmpty {
-                        Text("Aucune room disponible")
-                    } else {
-                        ForEach(candidates, id: \.self) { idx in
-                            if let name = groups[idx]?.name {
-                                Button(name) { linkCurrent(to: idx) }
-                            }
+            Section("Lier cette pièce à") {
+                if otherRooms.isEmpty {
+                    Text("Aucune autre pièce")
+                } else {
+                    ForEach(otherRooms, id: \.self) { idx in
+                        Toggle(isOn: Binding(
+                            get: { linkedRooms.contains(idx) },
+                            set: { _ in toggleLink(idx) }
+                        )) {
+                            Text(groups[idx]?.name ?? idx)
                         }
                     }
                 }
             }
-            Menu("Copy from") {
-                let candidates = copyCandidates()
-                if candidates.isEmpty {
-                    Text("Aucune room disponible")
+
+            if !linkedRooms.isEmpty {
+                Button(role: .destructive) { unlinkAll() } label: {
+                    Label("Tout délier", systemImage: "link.badge.minus")
+                }
+            }
+
+            Menu {
+                if otherRooms.isEmpty {
+                    Text("Aucune autre pièce")
                 } else {
-                    ForEach(candidates, id: \.self) { idx in
-                        if let name = groups[idx]?.name {
-                            Button(name) { copySegments(from: idx) }
-                        }
+                    ForEach(otherRooms, id: \.self) { idx in
+                        Button(groups[idx]?.name ?? idx) { copySegments(from: idx) }
                     }
                 }
+            } label: {
+                Label("Copier les horaires depuis", systemImage: "doc.on.doc")
             }
         } label: {
-            HStack(spacing: 4) {
-                Image(systemName: linkedTo != nil ? "link.circle.fill" : "link").font(.caption)
-                if let master = linkedTo, let name = groups[master]?.name {
-                    Text("→ \(name)").font(.caption)
-                } else {
-                    Text("link").font(.caption)
-                }
-            }
-            .foregroundStyle(linkedTo != nil ? AnyShapeStyle(.accent) : AnyShapeStyle(.secondary))
+            Image(systemName: linkedRooms.isEmpty ? "link" : "link.circle.fill")
+                .font(.title2)
+                .foregroundStyle(linkedRooms.isEmpty ? AnyShapeStyle(.secondary) : AnyShapeStyle(.accent))
         }
+        .accessibilityLabel(linkedRooms.isEmpty
+                            ? "Lier cette pièce"
+                            : "Liée à \(linkedRooms.count) pièce(s)")
     }
 
     @ViewBuilder
@@ -217,7 +205,7 @@ struct __rules: View {
 
     @ViewBuilder
     private var floatingButtons: some View {
-        let needsUpdate = listOfSegments.contains(where: { $0.synced == .notSynced || $0.hourChanged })
+        let needsUpdate = linksChanged || listOfSegments.contains(where: { $0.synced == .notSynced || $0.hourChanged })
         VStack {
             Spacer()
             HStack {
@@ -345,20 +333,24 @@ struct __rules: View {
         }
         sendGETGroups(ip: ip, which: nil) { response in
             groups = response
-            groupsIndices = response.map { $0.key }
-            if selectedGroupIndex.isEmpty, let first = groupsIndices.sorted().first {
+            groupsIndices = sortedIndices(response.map { $0.key })
+            migrateAndPruneRoomLinks(existingIndices: groupsIndices)
+            if selectedGroupIndex.isEmpty, let first = groupsIndices.first {
                 selectedGroupIndex = first
+            } else {
+                // Links could only be resolved now that the room list is known.
+                reloadLinkState()
             }
         }
     }
 
     private func loadSegments() {
         guard !selectedGroupIndex.isEmpty else { return }
-        miredsOffset = UserDefaults.standard.integer(forKey: "huehack-offset-\(selectedGroupIndex)")
+        miredsOffset = roomOffset(selectedGroupIndex)
         reloadLinkState()
-        // When linked, fetch segments from the MASTER group's rules; otherwise our own.
-        let fetchIdxString = linkedTo ?? selectedGroupIndex
-        guard let groupIdx = Int(fetchIdxString) else { return }
+        // Always read this room's OWN rules, so its sync state tells the truth
+        // even when it is linked to other rooms.
+        guard let groupIdx = Int(selectedGroupIndex) else { return }
         if demoMode {
             listOfSegments = demoSegments
             return
@@ -385,54 +377,42 @@ struct __rules: View {
 
     // MARK: - Bridge actions
 
-    private func segmentsWithOffset(_ base: [Segment]) -> [Segment] {
-        guard miredsOffset != 0 else { return base }
+    private func segmentsWithOffset(_ base: [Segment], offset: Int) -> [Segment] {
+        guard offset != 0 else { return base }
         return base.map {
             var s = $0
-            s.temp = min(500, max(153, s.temp + miredsOffset))
+            s.temp = min(500, max(153, s.temp + offset))
             return s
         }
     }
 
     // MARK: - Link helpers
 
-    private static func linkKey(_ idx: String) -> String { "huehack-linkedTo-\(idx)" }
+    /// Every other room on the bridge, sorted by index.
+    private var otherRooms: [String] {
+        groupsIndices.filter { $0 != selectedGroupIndex }
+    }
 
     private func reloadLinkState() {
-        linkedTo = UserDefaults.standard.string(forKey: Self.linkKey(selectedGroupIndex))
-        followers = groupsIndices.filter { other in
-            other != selectedGroupIndex &&
-            UserDefaults.standard.string(forKey: Self.linkKey(other)) == selectedGroupIndex
+        linkedRooms = roomLinks(selectedGroupIndex)
+    }
+
+    private func toggleLink(_ idx: String) {
+        if linkedRooms.contains(idx) {
+            // The room we untick leaves the group; the others stay linked together.
+            unlinkRoom(idx)
+        } else {
+            linkRooms(selectedGroupIndex, idx)
+            // Newly linked rooms still hold their old schedule until the next push.
+            linksChanged = true
         }
+        linkedRooms = roomLinks(selectedGroupIndex)
     }
 
-    /// Rooms that can be a link target for the current room.
-    /// Exclude: self, current's existing master, any room that is itself a follower (one-level rule).
-    private func linkCandidates() -> [String] {
-        groupsIndices.sorted().filter { idx in
-            guard idx != selectedGroupIndex else { return false }
-            // exclude followers (a follower cannot be a master)
-            if UserDefaults.standard.string(forKey: Self.linkKey(idx)) != nil { return false }
-            return true
-        }
-    }
-
-    /// Rooms whose segments we can copy from. Any other room (we'll read its bridge rules).
-    private func copyCandidates() -> [String] {
-        groupsIndices.sorted().filter { $0 != selectedGroupIndex }
-    }
-
-    private func linkCurrent(to master: String) {
-        UserDefaults.standard.set(master, forKey: Self.linkKey(selectedGroupIndex))
-        loadSegments()
-    }
-
-    private func unlinkCurrent() {
-        // Snapshot — segments stay as displayed, just drop the link.
-        UserDefaults.standard.removeObject(forKey: Self.linkKey(selectedGroupIndex))
-        reloadLinkState()
-        // Mark segments as notSynced so user can choose to push them as their own.
-        listOfSegments = listOfSegments.map { var s = $0; s.synced = .notSynced; return s }
+    private func unlinkAll() {
+        unlinkWholeGroup(selectedGroupIndex)
+        linkedRooms = []
+        linksChanged = false
     }
 
     private func copySegments(from sourceIdx: String) {
@@ -440,8 +420,11 @@ struct __rules: View {
         isLoading = true
         getSegmentFromRulesForGroup(selectedGroupIndex: groupIdx) { bridgeSegments in
             isLoading = false
+            // Strip the source room's own offset — we copy the base schedule, and
+            // this room will re-apply its own offset when pushing.
+            let base = segmentsWithOffset(bridgeSegments, offset: -roomOffset(sourceIdx))
             // Merge with solar to recompute hours like loadSegments does.
-            var merged = mergeSegmentsWithSolar(bridgeSegments: bridgeSegments, locationManager: locationManager)
+            var merged = mergeSegmentsWithSolar(bridgeSegments: base, locationManager: locationManager)
             merged = merged.sorted {
                 let h0 = ($0.hourStart.hour! < 3 ? $0.hourStart.hour! + 24 : $0.hourStart.hour!) * 60 + ($0.hourStart.minute ?? 0)
                 let h1 = ($1.hourStart.hour! < 3 ? $1.hourStart.hour! + 24 : $1.hourStart.hour!) * 60 + ($1.hourStart.minute ?? 0)
@@ -469,33 +452,51 @@ struct __rules: View {
                 updated[i].newTemp = nil
             }
         }
-        createRulesFromlistOfSegments(listOfSegments: segmentsWithOffset(updated), indexGroup: groupIdx) { response in
-            alertMessage = response
-            showAlert = true
+        isLoading = true
+        createRulesFromlistOfSegments(listOfSegments: segmentsWithOffset(updated, offset: miredsOffset),
+                                      indexGroup: groupIdx) { response in
             listOfSegments = updated.map { var s = $0; s.synced = .synced; return s }
-            cascadeToFollowers(masterSegments: updated)
+            pushToLinkedRooms(base: updated) { pushed, failed in
+                isLoading = false
+                linksChanged = false
+                var message = response
+                if pushed > 0 {
+                    message += "\n→ \(pushed) pièce(s) liée(s) mise(s) à jour"
+                }
+                if !failed.isEmpty {
+                    let names = failed.map { groups[$0]?.name ?? $0 }
+                    message += "\n⚠︎ échec : \(names.joined(separator: ", "))"
+                }
+                alertMessage = message
+                showAlert = true
+            }
         }
     }
 
-    /// After updating a master, push the same segments (with each follower's own offset) to follower bridges.
-    private func cascadeToFollowers(masterSegments: [Segment]) {
-        guard !followers.isEmpty else { return }
-        var remaining = followers
+    /// Pushes the same schedule to every linked room, each with its own mireds offset.
+    private func pushToLinkedRooms(base: [Segment], completion: @escaping (Int, [String]) -> Void) {
+        var remaining = linkedRooms
         var pushed = 0
+        var failed = [String]()
+
         func pushNext() {
-            guard let followerIdxStr = remaining.first else {
-                if pushed > 0 {
-                    alertMessage += "\n→ \(pushed) follower(s) mis à jour"
-                }
+            guard let idxString = remaining.first else {
+                completion(pushed, failed)
                 return
             }
             remaining.removeFirst()
-            guard let followerIdx = Int(followerIdxStr) else { pushNext(); return }
-            createRulesFromlistOfSegments(listOfSegments: masterSegments, indexGroup: followerIdx) { _ in
-                pushed += 1
+            guard let idx = Int(idxString) else {
+                failed.append(idxString)
+                pushNext()
+                return
+            }
+            let segments = segmentsWithOffset(base, offset: roomOffset(idxString))
+            createRulesFromlistOfSegments(listOfSegments: segments, indexGroup: idx) { response in
+                if response.contains("correctly") { pushed += 1 } else { failed.append(idxString) }
                 pushNext()
             }
         }
+
         pushNext()
     }
 }

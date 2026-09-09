@@ -10,31 +10,45 @@ struct HUEHACKApp: App {
     let persistenceController = PersistenceController.shared
 
     @AppStorage("hueOnboardingComplete") private var onboardingComplete = false
-    @AppStorage("hueBridgeIP") private var bridgeIP = ""
-    @AppStorage("usernameKey") private var storedUsername = ""
+
+    init() {
+        // One-shot migration: installs made before this flag existed skip onboarding.
+        // Marked as done so "Relancer l'onboarding" is not undone at the next launch.
+        let defaults = UserDefaults.standard
+        if !defaults.bool(forKey: "hueOnboardingMigrated") {
+            defaults.set(true, forKey: "hueOnboardingMigrated")
+            if !(defaults.string(forKey: "hueBridgeIP") ?? "").isEmpty,
+               !(defaults.string(forKey: "usernameKey") ?? "").isEmpty {
+                defaults.set(true, forKey: "hueOnboardingComplete")
+            }
+        }
+    }
 
     var body: some Scene {
         WindowGroup {
-            NavigationStack {
-                if onboardingComplete || (!bridgeIP.isEmpty && !storedUsername.isEmpty) {
-                    __rooms()
-                        .navigationTitle("HUEHACK")
-                        .toolbar {
-                            ToolbarItem(placement: .topBarTrailing) {
-                                NavigationLink {
-                                    __settings()
-                                        .navigationTitle("Réglages")
-                                } label: {
-                                    Image(systemName: "gear")
+            Group {
+                if onboardingComplete {
+                    // A stack of its own, so finishing onboarding lands here
+                    // instead of leaving the welcome screens pushed on top.
+                    NavigationStack {
+                        __rooms()
+                            .navigationTitle("HUEHACK")
+                            .toolbar {
+                                ToolbarItem(placement: .topBarTrailing) {
+                                    NavigationLink {
+                                        __settings()
+                                            .navigationTitle("Réglages")
+                                    } label: {
+                                        Image(systemName: "gear")
+                                    }
                                 }
                             }
-                        }
-                        .onAppear {
-                            if !onboardingComplete { onboardingComplete = true }
-                        }
+                    }
                 } else {
-                    _a_welcome()
-                        .navigationTitle("Bienvenue")
+                    NavigationStack {
+                        _a_welcome()
+                            .navigationTitle("Bienvenue")
+                    }
                 }
             }
             .environment(\.managedObjectContext, persistenceController.container.viewContext)

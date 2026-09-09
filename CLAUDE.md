@@ -8,9 +8,7 @@ The user is in France — sunrise/sunset times vary significantly across the yea
 ## Architecture Overview
 
 ### Entry Point
-`HUEHACKApp.swift` — `RootView` checks `@AppStorage("hueBridgeIP")` and `@AppStorage("usernameKey")`: if both are set, shows `SetHoursView()` (old view — **not yet updated to route to new views**); otherwise shows `_a_welcome()` (onboarding).
-
-> **Known issue**: the `New Views/` are all implemented and wired but **orphaned** — `RootView` routes to `SetHoursView()` when the bridge is already configured, so `1_overview`, `2_rules`, `3_settings` are never reached. The fix is in `HUEHACK-DEV/`: use `@AppStorage("hueOnboardingComplete")` flag and route to `__rooms()` (new grid view) with a settings toolbar button.
+`HUEHACKApp.swift` routes on `@AppStorage("hueOnboardingComplete")` only: `true` → `__rooms()` (grid, settings button in the toolbar), `false` → `_a_welcome()` (onboarding). Each branch has its own `NavigationStack`, so finishing onboarding (`0f` sets the flag) lands on the rooms view instead of leaving the welcome screens pushed on top. A one-shot migration in `init()` (guarded by `hueOnboardingMigrated`) marks pre-flag installs as onboarded without defeating "Relancer l'onboarding" in settings.
 
 ### File Structure
 ```
@@ -27,7 +25,7 @@ HUEHACK/
 │   ├── Location.swift           # GPS + reverse geocoding (LocationManager)
 │   └── Kelvins + mireds.swift  # Color temp conversions + SwiftUI Color extension
 │
-├── New Views/                   # New UI — fully implemented but orphaned (not reached from RootView)
+├── New Views/                   # Active UI (entry point: 4_rooms via HUEHACKApp)
 │   ├── 0a_welcome.swift         # Intro screen → navigates to 0b
 │   ├── 0b_welcome.swift         # Bridge discovery + pairing (functional, writes AppStorage) → navigates to 0d
 │   ├── 0c_welcome.swift         # Backup config decision (stub — not in active flow)
@@ -181,10 +179,19 @@ Le dossier `HUEHACK-DEV/` (copié dans le repo pour référence) contient des am
 
 ### Onboarding flow — état actuel
 ```
-0a → 0b (discovery+pairing) → 0d (room selection) → 0e (installation) → 0f (solar config) → [orphan]
+0a → 0b (discovery+pairing) → 0d (room selection) → 0e (installation) → 0f (solar config) → __rooms
 ```
-`RootView` route vers `SetHoursView()` (vieux) si bridge configuré — les nouvelles vues ne sont jamais atteintes.
-**Cible post-fusion** : `RootView` route vers `__rooms()` si `hueOnboardingComplete == true`.
+`0f` met `hueOnboardingComplete = true`, ce qui remplace la racine par `__rooms()`.
+
+## Link entre pièces (API/RoomLinks.swift)
+Un lien = un groupe de pièces qui partagent le même planning. Les liens sont **symétriques et complets** :
+chaque membre stocke la liste des autres dans `huehack-links-<groupIndex>` (JSON `[String]`).
+- Chaque pièce garde ses **propres règles sur le bridge** et son **propre offset** — l'état de sync affiché
+  correspond donc toujours à ce qui est réellement installé.
+- Le lien n'agit qu'au moment du push : `Update` envoie le planning à la pièce courante puis à chaque pièce liée,
+  en réappliquant l'offset propre à chacune.
+- `migrateAndPruneRoomLinks(existingIndices:)` convertit l'ancien stockage master/follower
+  (`huehack-linkedTo-<idx>`) et supprime les liens vers des pièces disparues.
 
 ## Build Info
 - No external package manager (SunCalc embedded locally)

@@ -99,14 +99,14 @@ func sendGETRules(ip: String, which: String?, completion: @escaping ([String: Ru
             if let which = which {
                 if let rule = decodeOneRuleResponse(jsonData: data) {
                     let result = [which:rule]
-                    completion(result)
+                    DispatchQueue.main.async { completion(result) }
                 } else {
                     print("Failed to decode response")
                 }
             }
             else {
                 if let rules = decodeRulesResponse(jsonData: data) {
-                    completion(rules)
+                    DispatchQueue.main.async { completion(rules) }
                 }
                 else {
                     print("Unknown error")
@@ -122,6 +122,7 @@ func createRulesFromlistOfSegments(listOfSegments: [Segment], indexGroup: Int, c
         let indiceGlobalOnOff = indexGlobalOnOff
         let indiceTimer = indexTimer
         var responsesFromPost = [String]()
+        let responsesLock = NSLock()
         let dispatchGroup = DispatchGroup()
 
         for indice in listOfSegments.indices {
@@ -135,7 +136,9 @@ func createRulesFromlistOfSegments(listOfSegments: [Segment], indexGroup: Int, c
                                  indexRègle: indice,
                                  indexTimer: indiceTimer,
                                  indexGobalOnOff: indiceGlobalOnOff) { response in
+                responsesLock.lock()
                 responsesFromPost.append(response)
+                responsesLock.unlock()
                 dispatchGroup.leave()
             }
         }

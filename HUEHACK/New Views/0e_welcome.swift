@@ -7,6 +7,9 @@ import SwiftUI
 
 struct _e_welcome: View {
 
+    /// Rooms picked in 0d — carried through to the solar config step.
+    var selectedRooms: [String] = []
+
     @State private var installStatus: InstallStatus = .idle
     @State private var message = ""
 
@@ -63,7 +66,7 @@ struct _e_welcome: View {
                 HStack {
                     Spacer()
                     NavigationLink {
-                        _f_welcome()
+                        _f_welcome(selectedRooms: selectedRooms)
                             .navigationTitle("Configuration solaire")
                     } label: {
                         Button_With_Icon(text: "next", icon: "arrowshape.right.circle", color: .fondClair)

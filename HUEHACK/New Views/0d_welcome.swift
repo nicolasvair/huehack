@@ -28,7 +28,7 @@ struct _d_welcome: View {
                         .padding()
                 } else {
                     List {
-                        ForEach(groupsIndices.sorted(), id: \.self) { idx in
+                        ForEach(groupsIndices, id: \.self) { idx in
                             if let room = groups[idx] {
                                 Button {
                                     if selectedIndices.contains(idx) {
@@ -60,7 +60,7 @@ struct _d_welcome: View {
                 HStack {
                     Spacer()
                     NavigationLink {
-                        _e_welcome()
+                        _e_welcome(selectedRooms: sortedIndices(selectedIndices))
                             .navigationTitle("Installation")
                     } label: {
                         Button_With_Icon(text: "next", icon: "arrowshape.right.circle", color: .fondClair)
@@ -72,10 +72,16 @@ struct _d_welcome: View {
             .padding()
         }
         .onAppear {
+            if demoMode {
+                groups = demoGroups
+                groupsIndices = sortedIndices(demoGroups.keys)
+                selectedIndices = Set(groupsIndices)
+                return
+            }
             isLoading = true
             sendGETGroups(ip: ip, which: nil) { response in
                 groups = response
-                groupsIndices = response.map { $0.key }
+                groupsIndices = sortedIndices(response.map { $0.key })
                 selectedIndices = Set(groupsIndices)
                 isLoading = false
             }

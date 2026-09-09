@@ -13,6 +13,10 @@ struct __settings: View {
     @AppStorage("hueIndexTimer") private var timerIndex = 0
     @AppStorage("hueOnboardingComplete") private var onboardingComplete = true
 
+    @State private var showCleanConfirm = false
+    @State private var cleanMessage = ""
+    @State private var isCleaning = false
+
     var body: some View {
         Form {
             Section("Bridge") {
@@ -52,12 +56,58 @@ struct __settings: View {
             }
 
             Section {
+                Button(role: .destructive) { showCleanConfirm = true } label: {
+                    HStack {
+                        Text("Supprimer les règles HUEHACK du bridge")
+                        if isCleaning {
+                            Spacer()
+                            ProgressView()
+                        }
+                    }
+                }
+                .disabled(isCleaning)
+                if !cleanMessage.isEmpty {
+                    Text(cleanMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } footer: {
+                Text("Supprime les règles et les capteurs virtuels HUEHACK, et oublie les réglages locaux (liens, offsets). Le reste du bridge — pièces, lampes, scènes, programmations — n'est pas touché. Relance ensuite l'onboarding pour repartir d'une config par défaut.")
+                    .font(.caption)
+            }
+
+            Section {
                 Button("Relancer l'onboarding", role: .destructive) {
                     onboardingComplete = false
                 }
             } footer: {
                 Text("Réinitialise le flux de démarrage. La configuration sur le bridge reste intacte.")
                     .font(.caption)
+            }
+        }
+        .alert("Supprimer HUEHACK du bridge ?", isPresented: $showCleanConfirm) {
+            Button("Annuler", role: .cancel) {}
+            Button("Supprimer", role: .destructive) { cleanHUEHACK() }
+        } message: {
+            Text("Les règles et capteurs HUEHACK seront supprimés, ainsi que les liens et offsets enregistrés dans l'app. Irréversible.")
+        }
+    }
+
+    private func cleanHUEHACK() {
+        isCleaning = true
+        cleanMessage = ""
+        fetchBridgeConfig { _, json in
+            guard let json else {
+                isCleaning = false
+                cleanMessage = "Bridge injoignable."
+                return
+            }
+            wipeBridge(scope: .huehackOnly, config: json) { deleted, failed in
+                clearLocalHUEHACKState()
+                isCleaning = false
+                cleanMessage = failed == 0
+                    ? "\(deleted) élément(s) supprimé(s)."
+                    : "\(deleted) supprimé(s), \(failed) échec(s)."
             }
         }
     }

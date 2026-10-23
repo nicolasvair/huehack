@@ -38,15 +38,28 @@ struct ActionBody: Decodable {
     let ct: Int?
 }
 
-// MARK: - Segment metadata persistence (name + show state, keyed by group)
+// MARK: - Segment metadata persistence (name + show state + pushed temps, keyed by group)
 
+/// One entry per rule index (`HUEHACK-GG-RR` → entry RR).
+/// `baseTemp` / `offset` were added later: optional so metadata saved by older
+/// builds still decodes.
 private struct SegmentMeta: Codable {
     let name: String
     let show: Bool
+    /// Temperature BEFORE the room offset was applied (the shared schedule value).
+    var baseTemp: Int? = nil
+    /// Room offset (mireds) applied when this schedule was pushed.
+    var offset: Int? = nil
 }
 
-func saveSegmentMeta(segments: [Segment], groupIndex: Int) {
-    let meta = segments.map { SegmentMeta(name: $0.name, show: $0.show ?? true) }
+func clampMireds(_ value: Int) -> Int {
+    min(500, max(153, value))
+}
+
+func saveSegmentMeta(segments: [Segment], groupIndex: Int, offset: Int = 0) {
+    let meta = segments.map {
+        SegmentMeta(name: $0.name, show: $0.show ?? true, baseTemp: $0.temp, offset: offset)
+    }
     if let encoded = try? JSONEncoder().encode(meta) {
         UserDefaults.standard.set(encoded, forKey: "huehack-meta-\(String(format: "%02d", groupIndex))")
     }
@@ -56,6 +69,22 @@ private func loadSegmentMeta(_ groupIndex: Int) -> [SegmentMeta] {
     guard let data = UserDefaults.standard.data(forKey: "huehack-meta-\(String(format: "%02d", groupIndex))"),
           let meta = try? JSONDecoder().decode([SegmentMeta].self, from: data) else { return [] }
     return meta
+}
+
+/// Offset (mireds) used the last time this app pushed rules for this group,
+/// or nil if unknown (nothing pushed yet, or pushed by an older build).
+func lastPushedOffset(groupIndex: Int) -> Int? {
+    loadSegmentMeta(groupIndex).first?.offset
+}
+
+/// Parses `HUEHACK-<group>-<rule>` structurally (works for any number of digits,
+/// so group 100 no longer collides with group 10). Returns nil for any other name,
+/// including HUEHACK's own non-segment rules (e.g. `HUEHACK-HEARTBEAT`).
+func parseHUEHACKRuleName(_ name: String) -> (group: Int, rule: Int)? {
+    let parts = name.split(separator: "-", omittingEmptySubsequences: false)
+    guard parts.count == 3, parts[0] == "HUEHACK",
+          let group = Int(parts[1]), let rule = Int(parts[2]) else { return nil }
+    return (group, rule)
 }
 
 
@@ -82,9 +111,16 @@ func decodeRulesResponse(jsonData: Data) -> [String:Rule]? {
 }
 
 
-func sendGETRules(ip: String, which: String?, completion: @escaping ([String: Rule]) -> Void) {
+/// Always calls `completion` on the main queue: the rules on success, nil on any
+/// failure (invalid URL, network error, bridge error payload, decode failure).
+func sendGETRules(ip: String, which: String?, completion: @escaping ([String: Rule]?) -> Void) {
+    func finish(_ result: [String: Rule]?) {
+        DispatchQueue.main.async { completion(result) }
+    }
+
     guard let url = URL(string: "http://\(ip)/api/\(username)/rules/\(which ?? "")") else {
         print("Invalid URL")
+        finish(nil)
         return
     }
 
@@ -94,92 +130,98 @@ func sendGETRules(ip: String, which: String?, completion: @escaping ([String: Ru
     URLSession.shared.dataTask(with: request) { data, response, error in
         if let error = error {
             print("Error: \(error.localizedDescription)")
+            finish(nil)
         }
         else if let data = data {
             if let which = which {
                 if let rule = decodeOneRuleResponse(jsonData: data) {
-                    let result = [which:rule]
-                    DispatchQueue.main.async { completion(result) }
+                    finish([which: rule])
                 } else {
                     print("Failed to decode response")
+                    finish(nil)
                 }
             }
             else {
                 if let rules = decodeRulesResponse(jsonData: data) {
-                    DispatchQueue.main.async { completion(rules) }
+                    finish(rules)
                 }
                 else {
-                    print("Unknown error")
+                    print("Failed to decode response")
+                    finish(nil)
                 }
             }
+        }
+        else {
+            print("Unknown error")
+            finish(nil)
         }
     }.resume()
 }
 
 
-func createRulesFromlistOfSegments(listOfSegments: [Segment], indexGroup: Int, completion: @escaping (String) -> Void) {
-    deleteAllHUEHACKRulesForGroup(indexGroup: indexGroup) {
+/// Success message returned by `createRulesFromlistOfSegments`. Callers test for
+/// `"correctly"` — keep that word in it.
+let rulesSentSuccessMessage = "All rules were correctly sent"
+
+/// Replaces the group's HUEHACK rules with one rule per segment.
+/// - `listOfSegments`: the BASE schedule (without room offset), sorted circularly.
+/// - `offset`: room offset in mireds, applied here as `clamp(temp + offset)`. The
+///   base temps and the offset are stored in the group's segment meta so the
+///   read-back (`getSegmentFromRulesForGroup`) can return the exact base schedule,
+///   even where the clamp lost information.
+/// Completes on main with `rulesSentSuccessMessage` on success, otherwise an error
+/// string (which never contains "correctly"). If the existing rules cannot be
+/// read or deleted, nothing is posted.
+func createRulesFromlistOfSegments(listOfSegments: [Segment], indexGroup: Int, offset: Int = 0, completion: @escaping (String) -> Void) {
+    deleteAllHUEHACKRulesForGroup(indexGroup: indexGroup) { deleted in
+        guard deleted else {
+            completion("Erreur : impossible de lire ou supprimer les règles existantes du bridge. Rien n'a été envoyé.")
+            return
+        }
+
         let indiceGlobalOnOff = indexGlobalOnOff
         let indiceTimer = indexTimer
-        var responsesFromPost = [String]()
-        let responsesLock = NSLock()
-        let dispatchGroup = DispatchGroup()
+        var failedRules = [String]()
 
-        for indice in listOfSegments.indices {
-            dispatchGroup.enter()
-            let nextIndex = (indice + 1) % listOfSegments.count
-            sendPOSTRuleRequest(ip: ip,
-                                 start: listOfSegments[indice].hourStart,
-                                 end: listOfSegments[nextIndex].hourStart,
-                                 temp: listOfSegments[indice].temp,
-                                 indexGroup: indexGroup,
-                                 indexRègle: indice,
-                                 indexTimer: indiceTimer,
-                                 indexGobalOnOff: indiceGlobalOnOff) { response in
-                responsesLock.lock()
-                responsesFromPost.append(response)
-                responsesLock.unlock()
-                dispatchGroup.leave()
-            }
-        }
-
-        dispatchGroup.notify(queue: .main) {
-            saveSegmentMeta(segments: listOfSegments, groupIndex: indexGroup)
-
-            var errors = [String]()
-            for response in responsesFromPost {
-                if !response.contains("\"success\"") {
-                    if let id = extractID(from: response) {
-                        errors.append(id)
+        // Posted one after the other: ~11 parallel POSTs can overload the bridge.
+        func postNext(_ indice: Int) {
+            guard indice < listOfSegments.count else {
+                DispatchQueue.main.async {
+                    saveSegmentMeta(segments: listOfSegments, groupIndex: indexGroup, offset: offset)
+                    if failedRules.isEmpty {
+                        completion(rulesSentSuccessMessage)
                     } else {
-                        errors.append("Unknown ID")
+                        completion("Erreur sur les règles : \(failedRules.joined(separator: ", "))")
                     }
                 }
+                return
             }
-
-            if errors.isEmpty {
-                completion("All rules were correctly sent")
-            } else {
-                completion("Error at IDs: \(errors.joined(separator: ", "))")
+            let nextIndex = (indice + 1) % listOfSegments.count
+            sendPOSTRuleRequest(ip: ip,
+                                start: listOfSegments[indice].hourStart,
+                                end: listOfSegments[nextIndex].hourStart,
+                                temp: clampMireds(listOfSegments[indice].temp + offset),
+                                indexGroup: indexGroup,
+                                indexRègle: indice,
+                                indexTimer: indiceTimer,
+                                indexGobalOnOff: indiceGlobalOnOff) { response in
+                if !response.contains("\"success\"") {
+                    failedRules.append(String(format: "%02d", indice))
+                }
+                postNext(indice + 1)
             }
         }
-    }
-}
 
-// Helper function to extract the ID from the response
-private func extractID(from response: String) -> String? {
-    if let startRange = response.range(of: "\"id\":\""),
-       let endRange = response[startRange.upperBound...].range(of: "\"") {
-        return String(response[startRange.upperBound..<endRange.lowerBound])
+        postNext(0)
     }
-    return nil
 }
 
 func sendPOSTRuleRequest(ip: String, start: DateComponents, end: DateComponents, temp: Int, indexGroup:Int, indexRègle: Int, indexTimer: Int, indexGobalOnOff: Int, completion: @escaping (String) -> Void) {
     guard let url = URL(string: "http://\(ip)/api/\(username)/rules") else {
-         print("Invalid URL")
+        print("Invalid URL")
+        completion("Invalid URL")
         return
-     }
+    }
 
      var request = URLRequest(url: url)
      request.httpMethod = "POST"
@@ -242,6 +284,8 @@ func sendPOSTRuleRequest(ip: String, start: DateComponents, end: DateComponents,
              completion(error.localizedDescription)
          } else if let data = data, let responseString = String(data: data, encoding: .utf8) {
              completion(responseString)
+         } else {
+             completion("Unknown error")
          }
      }.resume()
  }
@@ -252,6 +296,7 @@ func checkRulesIndex() -> [String: String] {
     var results: [String: String] = [:]
 
     sendGETRules(ip: ip, which: nil) { response in
+        guard let response = response else { return }
         for rulesTuple in response {
             if rulesTuple.1.name.prefix(7) == "HUEHACK" {
                 let name = String(rulesTuple.1.name.dropFirst(10))
@@ -266,38 +311,31 @@ func checkRulesIndex() -> [String: String] {
     return results
 }
 
-func getRulesAndFilterByGroup(group: Int, completion: @escaping ([String: Rule]) -> Void) {
-    var results: [String: Rule] = [:]
-
+/// Completes on main with the group's HUEHACK segment rules (keyed by bridge rule id),
+/// or nil if the rules could not be read.
+func getRulesAndFilterByGroup(group: Int, completion: @escaping ([String: Rule]?) -> Void) {
     sendGETRules(ip: ip, which: nil) { response in
-        for rulesTuple in response {
-            if rulesTuple.1.name.prefix(7) == "HUEHACK" {
-                let name = String(rulesTuple.1.name.dropFirst(8))
-                if name.prefix(2) == String(format: "%02d", group){
-                    results[rulesTuple.0] = rulesTuple.1
-                }
-            }
+        guard let response = response else {
+            completion(nil)
+            return
         }
+        let results = response.filter { parseHUEHACKRuleName($0.value.name)?.group == group }
         completion(results)
     }
 }
 
 
 func deleteAllHUEHACKRules(completion: @escaping () -> Void) {
-    var indexesOfHUEHACKRules = [String]()
-
     sendGETRules(ip: ip, which: nil) { response in
-        for rulesTuple in response {
-            if rulesTuple.1.name.prefix(7) == "HUEHACK" {
-                indexesOfHUEHACKRules.append(rulesTuple.0)
-            }
-        }
+        let indexesOfHUEHACKRules = (response ?? [:])
+            .filter { $0.value.name.hasPrefix("HUEHACK") }
+            .compactMap { Int($0.key) }
 
         let group = DispatchGroup()
 
         for index in indexesOfHUEHACKRules {
             group.enter()
-            sendDELETERequest(ip: ip, what: TypeWhat.rules, which: Int(index)!) { _ in
+            sendDELETERequest(ip: ip, what: TypeWhat.rules, which: index) { _ in
                 group.leave()
             }
         }
@@ -309,49 +347,60 @@ func deleteAllHUEHACKRules(completion: @escaping () -> Void) {
 }
 
 
-func deleteAllHUEHACKRulesForGroup(indexGroup: Int, completion: @escaping () -> Void) {
-    var indexesOfHUEHACKRules = [String]()
+/// Deletes the group's HUEHACK segment rules. Completes on main with false if the
+/// rules could not be read or any delete failed (posting new rules on top would
+/// leave duplicates on the bridge).
+func deleteAllHUEHACKRulesForGroup(indexGroup: Int, completion: @escaping (Bool) -> Void) {
+    getRulesAndFilterByGroup(group: indexGroup) { filteredRules in
+        guard let filteredRules = filteredRules else {
+            completion(false)
+            return
+        }
 
-    sendGETRules(ip: ip, which: nil) { response in
-        for rulesTuple in response {
-            if rulesTuple.1.name.prefix(7) == "HUEHACK" {
-                if rulesTuple.1.name.dropFirst(8).prefix(2) == String(format: "%02d", indexGroup) {
-                    indexesOfHUEHACKRules.append(rulesTuple.0)
+        var allDeleted = true
+        let lock = NSLock()
+        let group = DispatchGroup()
+
+        for key in filteredRules.keys {
+            guard let index = Int(key) else {
+                allDeleted = false
+                continue
+            }
+            group.enter()
+            sendDELETERequest(ip: ip, what: TypeWhat.rules, which: index) { response in
+                if !response.contains("\"success\"") {
+                    lock.lock(); allDeleted = false; lock.unlock()
                 }
-            }
-        }
-
-        let group = DispatchGroup()
-
-        for index in indexesOfHUEHACKRules {
-            group.enter()
-            sendDELETERequest(ip: ip, what: TypeWhat.rules, which: Int(index)!) { _ in
                 group.leave()
             }
         }
 
         group.notify(queue: .main) {
-            completion()
+            completion(allDeleted)
         }
     }
 }
 
 
+/// Converts one HUEHACK segment rule to a Segment named `GG-RR`.
+/// Returns nil for malformed rules instead of crashing.
 func segmentFromRule(rule: Rule) -> Segment? {
+    guard let parsed = parseHUEHACKRuleName(rule.name) else { return nil }
+    let name = String(format: "%02d-%02d", parsed.group, parsed.rule)
 
-    let name = String(rule.name.dropFirst(8))
+    guard let conditions = rule.conditions,
+          let timeCondition = conditions.first(where: { $0.address == "/config/localtime" })
+                ?? (conditions.count > 1 ? conditions[1] : nil),
+          let time = timeCondition.value,
+          let start = time.split(separator: "/").first?.dropFirst(1) else { return nil }
 
-    if let time = rule.conditions![1].value {
+    let timeFormatted = start.split(separator: ":")
+    guard timeFormatted.count >= 2,
+          let hour = Int(timeFormatted[0]), let minute = Int(timeFormatted[1]) else { return nil }
 
-        let timeFormatted = time.split(separator: "/")[0].dropFirst(1).split(separator: ":")
-        let hourStart = DateComponents(hour: Int(timeFormatted[0]) ?? 0, minute: Int(timeFormatted[1]) ?? 0)
+    guard let temp = rule.actions?.first?.body.ct else { return nil }
 
-        if let temp = rule.actions![0].body.ct {
-            return Segment(name: name, hourStart: hourStart, temp: temp, synced: .synced)
-        }
-    }
-
-    return nil
+    return Segment(name: name, hourStart: DateComponents(hour: hour, minute: minute), temp: temp, synced: .synced)
 }
 
 
@@ -403,38 +452,60 @@ func createSegmentForNow(listOfSegments: inout [Segment]) {
 }
 
 
-func getSegmentFromRulesForGroup(selectedGroupIndex: Int, completion: @escaping ([Segment]) -> Void) {
+/// Reads the group's rules back as the BASE schedule (room offset removed).
+/// - If the stored meta has the pushed base temp and `clamp(base + pushedOffset)`
+///   still equals the bridge temp, the base temp is returned as-is (lossless even
+///   when the clamp saturated).
+/// - Otherwise falls back to `clamp(bridgeTemp - offset)`, with the offset stored
+///   at push time, or `legacyOffset` for rules pushed by an older build.
+/// Completes on main with nil if the rules could not be read.
+func getSegmentFromRulesForGroup(selectedGroupIndex: Int, legacyOffset: Int = 0, completion: @escaping ([Segment]?) -> Void) {
     let meta = loadSegmentMeta(selectedGroupIndex)
 
     getRulesAndFilterByGroup(group: selectedGroupIndex) { filteredRules in
+        guard let filteredRules = filteredRules else {
+            completion(nil)
+            return
+        }
+
         var listOfSegmentsTemp = [Segment]()
 
-        for rule in filteredRules {
-            if var segment = segmentFromRule(rule: rule.1) {
-                let parts = segment.name.split(separator: "-")
-                if parts.count == 2, let ruleIdx = Int(parts[1]), ruleIdx < meta.count {
-                    segment.name = meta[ruleIdx].name
-                    segment.show = meta[ruleIdx].show
-                }
-                listOfSegmentsTemp.append(segment)
+        for rule in filteredRules.values {
+            guard var segment = segmentFromRule(rule: rule),
+                  let ruleIdx = parseHUEHACKRuleName(rule.name)?.rule else { continue }
+
+            let entry: SegmentMeta? = (ruleIdx >= 0 && ruleIdx < meta.count) ? meta[ruleIdx] : nil
+            if let entry = entry {
+                segment.name = entry.name
+                segment.show = entry.show
             }
+
+            let bridgeTemp = segment.temp
+            let offset = entry?.offset ?? legacyOffset
+            if let base = entry?.baseTemp, let metaOffset = entry?.offset,
+               clampMireds(base + metaOffset) == bridgeTemp {
+                segment.temp = base
+            } else if offset != 0 {
+                segment.temp = clampMireds(bridgeTemp - offset)
+            }
+
+            listOfSegmentsTemp.append(segment)
         }
 
-        listOfSegmentsTemp = listOfSegmentsTemp.sorted {
-            let h0 = ($0.hourStart.hour! < 3 ? $0.hourStart.hour! + 24 : $0.hourStart.hour!) * 60 + ($0.hourStart.minute ?? 0)
-            let h1 = ($1.hourStart.hour! < 3 ? $1.hourStart.hour! + 24 : $1.hourStart.hour!) * 60 + ($1.hourStart.minute ?? 0)
-            return h0 < h1
-        }
-
-        completion(listOfSegmentsTemp)
+        completion(sortedCircular(listOfSegmentsTemp))
     }
 }
 
 // MARK: - Solar merge
 
-private func solarSortKey(_ s: Segment) -> Int {
+/// Circular order: hours before 3am sort after the evening ones.
+func solarSortKey(_ s: Segment) -> Int {
     let h = s.hourStart.hour ?? 0
     return (h < 3 ? h + 24 : h) * 60 + (s.hourStart.minute ?? 0)
+}
+
+func sortedCircular(_ segments: [Segment]) -> [Segment] {
+    segments.sorted { solarSortKey($0) < solarSortKey($1) }
 }
 
 func mergeSegmentsWithSolar(bridgeSegments: [Segment], locationManager: LocationManager) -> [Segment] {

@@ -54,7 +54,7 @@ struct SetHoursView: View {
             }
             .onChange(of: selectedGroupIndex) { oldValue, newValue in
                 getSegmentFromRulesForGroup(selectedGroupIndex: Int(selectedGroupIndex)!){ response in
-                    listOfSegments = response
+                    if let response = response { listOfSegments = response }
                 }
             }
             .pickerStyle(.palette)
@@ -94,7 +94,7 @@ struct SetHoursView: View {
                         groupsIndices = response.map { $0.key }
                         groups = response
                         getSegmentFromRulesForGroup(selectedGroupIndex: Int(selectedGroupIndex)!){ response in
-                            listOfSegments = response
+                            if let response = response { listOfSegments = response }
                         }
                     }
                 }
@@ -133,7 +133,7 @@ struct SetHoursView: View {
                         groupsIndices = response.map { $0.key }
                         groups = response
                         getSegmentFromRulesForGroup(selectedGroupIndex: Int(selectedGroupIndex)!) { response in
-                            listOfSegments = response
+                            if let response = response { listOfSegments = response }
                         }
                     }
                 }

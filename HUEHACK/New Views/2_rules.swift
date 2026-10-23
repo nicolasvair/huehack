@@ -27,6 +27,8 @@ struct __rules: View {
 
     @State private var isEditing = false
     @State private var isLoading = false
+    @State private var pendingReload = false       // a reload was requested while busy
+    @State private var pushedOffset: Int? = nil    // room offset used by the rules on the bridge
     @State private var hasLoadedOnce = false
     @State private var showAlert = false
     @State private var alertMessage = ""
@@ -105,6 +107,7 @@ struct __rules: View {
                                 .font(.caption)
                         }
                     }
+                    .disabled(isLoading)
                 }
             }
             Spacer()
@@ -168,6 +171,7 @@ struct __rules: View {
                 .frame(minWidth: 44, minHeight: 44)
                 .contentShape(Rectangle())
         }
+        .disabled(isLoading)
         .accessibilityLabel("Copier les horaires d'une autre pièce")
     }
 
@@ -232,7 +236,10 @@ struct __rules: View {
 
     @ViewBuilder
     private var floatingButtons: some View {
-        let needsUpdate = linksChanged || listOfSegments.contains(where: { $0.synced == .notSynced || $0.hourChanged })
+        // The offset is applied at push time: a new offset needs a push too.
+        let offsetChanged = pushedOffset != nil && pushedOffset != miredsOffset
+        let needsUpdate = linksChanged || offsetChanged
+            || listOfSegments.contains(where: { $0.synced == .notSynced || $0.hourChanged || $0.tempChanged })
         VStack {
             Spacer()
             HStack {
@@ -242,6 +249,8 @@ struct __rules: View {
                         Button_With_Icon(text: "Update", icon: "arrow.trianglehead.2.clockwise")
                             .foregroundStyle(.accent)
                     }
+                    .disabled(isLoading)
+                    .opacity(isLoading ? 0.4 : 1)
                 }
             }
         }
@@ -359,6 +368,8 @@ struct __rules: View {
             return
         }
         sendGETGroups(ip: ip, which: nil) { response in
+            // Empty = bridge unreachable / error: keep what we have.
+            guard !response.isEmpty else { return }
             groups = response
             groupsIndices = sortedIndices(response.map { $0.key })
             migrateAndPruneRoomLinks(existingIndices: groupsIndices)
@@ -373,44 +384,50 @@ struct __rules: View {
 
     private func loadSegments() {
         guard !selectedGroupIndex.isEmpty else { return }
+        // Never read the bridge while a push/read is in flight (would see partial
+        // rules); reload once it is done instead.
+        if isLoading {
+            pendingReload = true
+            return
+        }
+        pendingReload = false
         miredsOffset = roomOffset(selectedGroupIndex)
         reloadLinkState()
         // Always read this room's OWN rules, so its sync state tells the truth
         // even when it is linked to other rooms.
         guard let groupIdx = Int(selectedGroupIndex) else { return }
+        pushedOffset = demoMode ? nil : lastPushedOffset(groupIndex: groupIdx)
         if demoMode {
             listOfSegments = demoSegments
             return
         }
+        let requestedGroup = selectedGroupIndex
         isLoading = true
-        getSegmentFromRulesForGroup(selectedGroupIndex: groupIdx) { bridgeSegments in
-            isLoading = false
-            let baseBridge: [Segment] = miredsOffset == 0 ? bridgeSegments : bridgeSegments.map {
-                var s = $0
-                s.temp = min(500, max(153, s.temp - miredsOffset))
-                return s
+        // Read-back returns the BASE schedule (offset removed, lossless thanks to the
+        // pushed meta); `legacyOffset` only serves rules pushed by older builds.
+        getSegmentFromRulesForGroup(selectedGroupIndex: groupIdx,
+                                    legacyOffset: roomOffset(requestedGroup)) { bridgeSegments in
+            if finishBusyAndReloadIfNeeded(for: requestedGroup) { return }
+            guard let bridgeSegments = bridgeSegments else {
+                // Keep the current list: an empty one would look like "nothing installed".
+                alertMessage = "Impossible de lire les règles du bridge. Vérifie la connexion puis tire pour rafraîchir."
+                showAlert = true
+                return
             }
-            listOfSegments = mergeSegmentsWithSolar(
-                bridgeSegments: baseBridge,
+            listOfSegments = sortedCircular(mergeSegmentsWithSolar(
+                bridgeSegments: bridgeSegments,
                 locationManager: locationManager
-            )
-            listOfSegments = listOfSegments.sorted {
-                let h0 = ($0.hourStart.hour! < 3 ? $0.hourStart.hour! + 24 : $0.hourStart.hour!) * 60 + ($0.hourStart.minute ?? 0)
-                let h1 = ($1.hourStart.hour! < 3 ? $1.hourStart.hour! + 24 : $1.hourStart.hour!) * 60 + ($1.hourStart.minute ?? 0)
-                return h0 < h1
-            }
+            ))
         }
     }
 
-    // MARK: - Bridge actions
-
-    private func segmentsWithOffset(_ base: [Segment], offset: Int) -> [Segment] {
-        guard offset != 0 else { return base }
-        return base.map {
-            var s = $0
-            s.temp = min(500, max(153, s.temp + offset))
-            return s
-        }
+    /// Ends a busy phase. Returns true (and reloads) if the result is stale — the room
+    /// changed meanwhile — or a reload was requested while busy.
+    private func finishBusyAndReloadIfNeeded(for requestedGroup: String) -> Bool {
+        isLoading = false
+        guard pendingReload || requestedGroup != selectedGroupIndex else { return false }
+        loadSegments()
+        return true
     }
 
     // MARK: - Link helpers
@@ -442,27 +459,29 @@ struct __rules: View {
     }
 
     private func copySegments(from sourceIdx: String) {
-        guard let groupIdx = Int(sourceIdx) else { return }
+        guard !isLoading, let groupIdx = Int(sourceIdx) else { return }
+        let requestedGroup = selectedGroupIndex
         isLoading = true
-        getSegmentFromRulesForGroup(selectedGroupIndex: groupIdx) { bridgeSegments in
-            isLoading = false
-            // Strip the source room's own offset — we copy the base schedule, and
-            // this room will re-apply its own offset when pushing.
-            let base = segmentsWithOffset(bridgeSegments, offset: -roomOffset(sourceIdx))
-            // Merge with solar to recompute hours like loadSegments does.
-            var merged = mergeSegmentsWithSolar(bridgeSegments: base, locationManager: locationManager)
-            merged = merged.sorted {
-                let h0 = ($0.hourStart.hour! < 3 ? $0.hourStart.hour! + 24 : $0.hourStart.hour!) * 60 + ($0.hourStart.minute ?? 0)
-                let h1 = ($1.hourStart.hour! < 3 ? $1.hourStart.hour! + 24 : $1.hourStart.hour!) * 60 + ($1.hourStart.minute ?? 0)
-                return h0 < h1
+        // The read-back already strips the source room's own offset — we copy the
+        // base schedule, and this room re-applies its own offset when pushing.
+        getSegmentFromRulesForGroup(selectedGroupIndex: groupIdx,
+                                    legacyOffset: roomOffset(sourceIdx)) { bridgeSegments in
+            if finishBusyAndReloadIfNeeded(for: requestedGroup) { return }
+            guard let bridgeSegments = bridgeSegments else {
+                alertMessage = "Impossible de lire les règles de \(groups[sourceIdx]?.name ?? sourceIdx)."
+                showAlert = true
+                return
             }
+            // Merge with solar to recompute hours like loadSegments does.
+            let merged = sortedCircular(mergeSegmentsWithSolar(bridgeSegments: bridgeSegments,
+                                                               locationManager: locationManager))
             // Mark as notSynced so the Update button shows.
             listOfSegments = merged.map { var s = $0; s.synced = .notSynced; return s }
         }
     }
 
     private func applyUpdate() {
-        guard let groupIdx = Int(selectedGroupIndex) else { return }
+        guard !isLoading, let groupIdx = Int(selectedGroupIndex) else { return }
         var updated = listOfSegments
         for i in updated.indices where updated[i].hourChanged {
             if let newHour = updated[i].newHourStart {
@@ -478,12 +497,23 @@ struct __rules: View {
                 updated[i].newTemp = nil
             }
         }
+        // New hours can change the order: rule N must end where rule N+1 starts.
+        updated = sortedCircular(updated)
+
+        // Capture everything now: the view state may change while the push runs.
+        let requestedGroup = selectedGroupIndex
+        let offset = miredsOffset
+        let linked = linkedRooms
         isLoading = true
-        createRulesFromlistOfSegments(listOfSegments: segmentsWithOffset(updated, offset: miredsOffset),
-                                      indexGroup: groupIdx) { response in
-            listOfSegments = updated.map { var s = $0; s.synced = .synced; return s }
-            pushToLinkedRooms(base: updated) { pushed, failed in
-                isLoading = false
+        // `updated` is the BASE schedule; the offset is applied (and remembered) by
+        // createRulesFromlistOfSegments.
+        createRulesFromlistOfSegments(listOfSegments: updated, indexGroup: groupIdx, offset: offset) { response in
+            let ok = response.contains("correctly")
+            if ok, requestedGroup == selectedGroupIndex {
+                listOfSegments = updated.map { var s = $0; s.synced = .synced; return s }
+                pushedOffset = offset
+            }
+            pushToLinkedRooms(linked, base: updated) { pushed, failed in
                 linksChanged = false
                 var message = response
                 if pushed > 0 {
@@ -495,13 +525,16 @@ struct __rules: View {
                 }
                 alertMessage = message
                 showAlert = true
+                // On failure, show what is really on the bridge rather than a fake "synced".
+                if !ok { pendingReload = true }
+                _ = finishBusyAndReloadIfNeeded(for: requestedGroup)
             }
         }
     }
 
-    /// Pushes the same schedule to every linked room, each with its own mireds offset.
-    private func pushToLinkedRooms(base: [Segment], completion: @escaping (Int, [String]) -> Void) {
-        var remaining = linkedRooms
+    /// Pushes the same base schedule to every linked room, each with its own mireds offset.
+    private func pushToLinkedRooms(_ rooms: [String], base: [Segment], completion: @escaping (Int, [String]) -> Void) {
+        var remaining = rooms
         var pushed = 0
         var failed = [String]()
 
@@ -516,8 +549,8 @@ struct __rules: View {
                 pushNext()
                 return
             }
-            let segments = segmentsWithOffset(base, offset: roomOffset(idxString))
-            createRulesFromlistOfSegments(listOfSegments: segments, indexGroup: idx) { response in
+            createRulesFromlistOfSegments(listOfSegments: base, indexGroup: idx,
+                                          offset: roomOffset(idxString)) { response in
                 if response.contains("correctly") { pushed += 1 } else { failed.append(idxString) }
                 pushNext()
             }
@@ -591,7 +624,7 @@ struct LinkRoomsSheet: View {
     @ViewBuilder
     private func row(_ idx: String) -> some View {
         let isOn = selection.contains(idx)
-        // Members of another link group: ticking one brings its whole group along.
+        // Members of another link group: ticking one moves it out of that group.
         let otherGroup = roomLinks(idx).filter { $0 != roomIndex && !initialSelection.contains($0) }
         HStack(spacing: 12) {
             Image(systemName: isOn ? "checkmark.circle.fill" : "circle")
@@ -600,7 +633,9 @@ struct LinkRoomsSheet: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(groups[idx]?.name ?? idx)
                 if !initialSelection.contains(idx), !otherGroup.isEmpty {
-                    Text("déjà liée à \(otherGroup.map { groups[$0]?.name ?? $0 }.joined(separator: ", "))")
+                    Text(isOn
+                         ? "quittera son lien avec \(otherGroup.map { groups[$0]?.name ?? $0 }.joined(separator: ", "))"
+                         : "déjà liée à \(otherGroup.map { groups[$0]?.name ?? $0 }.joined(separator: ", "))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

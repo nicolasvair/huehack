@@ -85,62 +85,49 @@ func decodeGroupsResponse(jsonData: Data) -> [String: RoomResponse]? {
 
 
 
+/// Always calls `completion` on the main queue. On any failure (invalid URL, network
+/// error, bridge error payload, decode failure) it is called with an empty dictionary,
+/// so callers never hang on a spinner.
 func sendGETGroups(ip: String, which: String?, completion: @escaping ([String:RoomResponse]) -> Void) {
+    func finish(_ result: [String: RoomResponse]) {
+        DispatchQueue.main.async { completion(result) }
+    }
+
     guard let url = URL(string: "http://\(ip)/api/\(username)/groups/\(which ?? "")") else {
         print("Invalid URL")
-//        completion("Invalid URL")
+        finish([:])
         return
     }
-    
+
     var request = URLRequest(url: url)
     request.httpMethod = TypeRequest.GET.rawValue
-    
+
     URLSession.shared.dataTask(with: request) { data, response, error in
         if let error = error {
             print("Error: \(error.localizedDescription)")
-//            completion(error.localizedDescription)
+            finish([:])
         }
         else if let data = data {
-            
-//            print(String(data: data, encoding: .utf8))
-            
             if let which = which {
-                
-                
-                // Utilisation de decodeSensorResponse
                 if let group = decodeOneGroupResponse(jsonData: data) {
-                    print(group.name)
-                    let result = [which : group]
-                    DispatchQueue.main.async { completion(result) }
+                    finish([which : group])
                 } else {
                     print("Failed to decode response")
+                    finish([:])
                 }
-                 
             }
             else {
-                
-                
                 if let groups = decodeGroupsResponse(jsonData: data) {
-
-//                    var result = " ----- GROUPS ----- \n"
-//
-//                    for group in groups {
-//                        result += "\(group.0) - \(group.1.name) - \(group.1.lights)\n"
-//                    }
-//                    print(result)
-                    
-                    DispatchQueue.main.async { completion(groups) }
+                    finish(groups)
                 } else {
                     print("Failed to decode response")
-                    //completion(nil)
+                    finish([:])
                 }
-                 
-                
             }
         }
-        
         else {
             print("Unknown error")
+            finish([:])
         }
     }.resume()
 }

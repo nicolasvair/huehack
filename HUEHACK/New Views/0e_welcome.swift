@@ -71,8 +71,8 @@ struct _e_welcome: View {
                     } label: {
                         Button_With_Icon(text: "next", icon: "arrowshape.right.circle", color: .fondClair)
                     }
-                    .disabled(installStatus != .success)
-                    .opacity(installStatus == .success ? 1 : 0.35)
+                    .disabled(installStatus != .success && !demoMode)
+                    .opacity(installStatus == .success || demoMode ? 1 : 0.35)
                 }
             }
             .padding()

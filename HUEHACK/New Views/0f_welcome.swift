@@ -23,6 +23,8 @@ struct _f_welcome: View {
     @State private var failedRooms = [String]()
     @State private var message = ""
 
+    @AppStorage("hueOnboardingComplete") private var onboardingComplete = false
+
     enum SendStatus { case idle, inProgress, success, failure }
 
     /// The rooms this default config is applied to.
@@ -30,6 +32,11 @@ struct _f_welcome: View {
         guard !selectedRooms.isEmpty else { return groupsIndices }
         guard !groupsIndices.isEmpty else { return sortedIndices(selectedRooms) }
         return sortedIndices(Set(selectedRooms).intersection(groupsIndices))
+    }
+
+    /// Target rooms that actually received the schedule — the ones worth linking.
+    private var configuredRooms: [String] {
+        targetRooms.filter { !failedRooms.contains($0) }
     }
 
     private var targetNames: String {
@@ -133,17 +140,27 @@ struct _f_welcome: View {
                         }
                         Spacer()
                         if sendStatus == .success {
-                            NavigationLink {
-                                _g_welcome(configuredRooms: targetRooms)
-                                    .navigationTitle("Lier les pièces")
-                            } label: {
-                                Button_With_Icon(text: "next", icon: "arrowshape.right.circle", color: .fondClair)
+                            if configuredRooms.count > 1 {
+                                NavigationLink {
+                                    _g_welcome(configuredRooms: configuredRooms)
+                                        .navigationTitle("Lier les pièces")
+                                } label: {
+                                    Button_With_Icon(text: "next", icon: "arrowshape.right.circle", color: .fondClair)
+                                }
+                            } else {
+                                // Nothing to link with a single room — finish here.
+                                Button { finishOnboarding() } label: {
+                                    Button_With_Icon(text: "done !", icon: "checkmark.circle", color: .fondClair)
+                                }
                             }
                         } else {
                             HStack(spacing: 12) {
                                 if sendStatus == .inProgress { ProgressView() }
                                 else if sendStatus == .failure {
                                     Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
+                                    // Don't trap the user in onboarding: each room can be
+                                    // pushed later from the rooms view.
+                                    Button("Passer") { finishOnboarding() }
                                 }
                                 Button {
                                     sendToAllRooms()
@@ -202,6 +219,11 @@ struct _f_welcome: View {
             sendStatus = pushedRooms > 0 ? .success : .failure
             message = "\(pushedRooms)/\(total) — échec : \(names.joined(separator: ", "))"
         }
+    }
+
+    /// Ends onboarding: the app root swaps to __rooms(), dropping the welcome stack.
+    private func finishOnboarding() {
+        withAnimation { onboardingComplete = true }
     }
 }
 

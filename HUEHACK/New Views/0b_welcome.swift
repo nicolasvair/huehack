@@ -11,7 +11,15 @@ struct _b_welcome: View {
     @StateObject var pairingManager = BridgePairingManager()
 
     @AppStorage("hueBridgeIP") private var bridgeIP = ""
+    @AppStorage("usernameKey") private var storedUsername = ""
     @State private var manualIP = ""
+
+    /// Paired now, or already paired (onboarding relaunched from settings), or demo.
+    private var canContinue: Bool {
+        pairingManager.status == .success
+            || (!bridgeIP.isEmpty && !storedUsername.isEmpty)
+            || demoMode
+    }
 
     var body: some View {
         ZStack {
@@ -106,8 +114,8 @@ struct _b_welcome: View {
                     } label: {
                         Button_With_Icon(text: "next", icon: "arrowshape.right.circle", color: .fondClair)
                     }
-                    .disabled(pairingManager.status != .success)
-                    .opacity(pairingManager.status == .success ? 1 : 0.35)
+                    .disabled(!canContinue)
+                    .opacity(canContinue ? 1 : 0.35)
                 }
             }
             .padding()

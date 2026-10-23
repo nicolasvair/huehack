@@ -11,7 +11,7 @@ struct __settings: View {
     @AppStorage("usernameKey") private var storedUsername = ""
     @AppStorage("hueIndexGlobalOnOff") private var globalOnOffIndex = 0
     @AppStorage("hueIndexTimer") private var timerIndex = 0
-    @AppStorage("hueOnboardingComplete") private var onboardingComplete = true
+    @AppStorage("hueOnboardingComplete") private var onboardingComplete = false
 
     @State private var showCleanConfirm = false
     @State private var cleanMessage = ""
@@ -78,7 +78,9 @@ struct __settings: View {
 
             Section {
                 Button("Relancer l'onboarding", role: .destructive) {
-                    onboardingComplete = false
+                    // Swaps the app root to the welcome stack (this settings
+                    // screen and the rooms stack under it go away).
+                    withAnimation { onboardingComplete = false }
                 }
             } footer: {
                 Text("Réinitialise le flux de démarrage. La configuration sur le bridge reste intacte.")

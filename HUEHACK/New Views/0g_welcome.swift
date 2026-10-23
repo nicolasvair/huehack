@@ -107,7 +107,9 @@ struct _g_welcome: View {
                 linkRooms(first, other)
             }
         }
-        onboardingComplete = true
+        // Button action → main thread. Flipping the flag swaps the app root to
+        // __rooms(), dropping the whole welcome stack.
+        withAnimation { onboardingComplete = true }
     }
 }
 

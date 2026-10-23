@@ -192,8 +192,14 @@ func sendGlobalOnOff(ip: String, indexGlobalOnOff: Int, indexTimer: Int, state: 
 
 // MARK: - HUEHACK installation
 
-private func createVirtualSensor(name: String, uniqueid: String, completion: @escaping (Int?) -> Void) {
-    guard let url = URL(string: "http://\(ip)/api/\(username)/sensors") else { completion(nil); return }
+/// Creates a CLIPGenericStatus sensor (status starts at 0). Completes on main with
+/// its bridge id, or nil on failure. Also used for the per-room OVR sensors
+/// (RoomOverride.swift).
+func createVirtualSensor(name: String, uniqueid: String, completion: @escaping (Int?) -> Void) {
+    guard let url = URL(string: "http://\(ip)/api/\(username)/sensors") else {
+        DispatchQueue.main.async { completion(nil) }
+        return
+    }
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")

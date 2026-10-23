@@ -8,7 +8,7 @@ let demoMode = false
 // MARK: - Fake rooms
 
 let demoGroups: [String: RoomResponse] = {
-    func room(_ name: String, ct: Int) -> RoomResponse {
+    func room(_ name: String, ct: Int, hue: Int? = nil, sat: Int? = nil) -> RoomResponse {
         RoomResponse(
             name: name,
             lights: ["1", "2"],
@@ -17,19 +17,26 @@ let demoGroups: [String: RoomResponse] = {
             state: RoomState(allOn: true, anyOn: true),
             recycle: false,
             class: "Living room",
-            action: RoomAction(on: true, bri: 200, hue: nil, sat: nil,
-                               effect: nil, xy: nil, ct: ct, alert: "none", colormode: "ct"),
+            action: RoomAction(on: true, bri: 200, hue: hue, sat: sat,
+                               effect: nil, xy: nil, ct: ct, alert: "none",
+                               colormode: hue == nil ? "ct" : "hs"),
             stream: nil,
             locations: nil
         )
     }
     return [
         "1": room("Salon",   ct: 280),
-        "2": room("Chambre", ct: 370),
+        "2": room("Chambre", ct: 370, hue: 50000, sat: 200),  // paused, manual colour
         "3": room("Bureau",  ct: 250),
         "4": room("Cuisine", ct: 300),
     ]
 }()
+
+// MARK: - Fake circadian pause
+// Rooms whose circadian is paused (manual colour). Mutated by the RoomOverride
+// helpers in demo mode instead of talking to a bridge.
+
+var demoPausedRooms: Set<String> = ["2"]
 
 // MARK: - Fake segments for group "1"
 // Includes .notSynced and hourChanged states so all UI elements are visible.

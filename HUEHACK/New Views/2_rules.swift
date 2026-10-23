@@ -25,6 +25,10 @@ struct __rules: View {
     @State private var linksChanged = false        // a link was just added → linked rooms need a push
     @State private var showLinkSheet = false
 
+    @State private var isPaused = false            // circadian paused for this room (manual colour)
+    @State private var isChangingPause = false     // a pause / resume request is in flight
+    @State private var showColorSheet = false
+
     @State private var isEditing = false
     @State private var isLoading = false
     @State private var pendingReload = false       // a reload was requested while busy
@@ -37,6 +41,7 @@ struct __rules: View {
         VStack(spacing: 0) {
             topBar
             sharedScheduleBanner
+            pauseBanner
             editBar
             segmentList
         }
@@ -54,6 +59,7 @@ struct __rules: View {
         }
         .onChange(of: selectedGroupIndex) { _, _ in
             linksChanged = false
+            isPaused = false
             loadSegments()
         }
         .onChange(of: locationManager.latitude) { oldValue, newValue in
@@ -75,6 +81,14 @@ struct __rules: View {
                 initialSelection: Set(linkedRooms)
             ) { selection in
                 applyLinkSelection(selection)
+            }
+        }
+        .sheet(isPresented: $showColorSheet) {
+            ManualColorSheet(
+                roomName: groups[selectedGroupIndex]?.name ?? selectedGroupIndex,
+                initialAction: groups[selectedGroupIndex]?.action
+            ) { hue, sat, bri in
+                applyManualColorToRoom(hue: hue, sat: sat, bri: bri)
             }
         }
         .alert("Bridge", isPresented: $showAlert) {
@@ -112,6 +126,7 @@ struct __rules: View {
             }
             Spacer()
             copyMenu
+            manualColorButton
             linkButton
             Button { showOffsetSheet = true } label: {
                 HStack(spacing: 4) {
@@ -150,6 +165,21 @@ struct __rules: View {
         .accessibilityLabel(linkedRooms.isEmpty
                             ? "Lier cette pièce à d'autres pièces"
                             : "Liée à \(linkedRooms.count) pièce(s)")
+    }
+
+    /// Manual colour: opens the colour sheet. Filled / accent while paused.
+    private var manualColorButton: some View {
+        Button { showColorSheet = true } label: {
+            Image(systemName: isPaused ? "paintpalette.fill" : "paintpalette")
+                .font(.title3)
+                .foregroundStyle(isPaused ? AnyShapeStyle(.accent) : AnyShapeStyle(.secondary))
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .disabled(groups.isEmpty || selectedGroupIndex.isEmpty || isChangingPause)
+        .accessibilityLabel(isPaused
+                            ? "Couleur manuelle — circadien en pause"
+                            : "Choisir une couleur manuelle")
     }
 
     /// One-shot copy of another room's schedule (no lasting link).
@@ -191,6 +221,31 @@ struct __rules: View {
                 .foregroundStyle(.accent)
             }
             .buttonStyle(.plain)
+            .padding(.horizontal)
+            .padding(.bottom, 4)
+        }
+    }
+
+    /// Shown while this room's circadian is paused by a manual colour.
+    @ViewBuilder
+    private var pauseBanner: some View {
+        if isPaused {
+            HStack(spacing: 6) {
+                Image(systemName: "pause.circle.fill")
+                Text("Circadien en pause — couleur manuelle")
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                Spacer(minLength: 0)
+                if isChangingPause {
+                    ProgressView()
+                } else {
+                    Button("Reprendre") { resumeCircadianInRoom() }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.accent)
             .padding(.horizontal)
             .padding(.bottom, 4)
         }
@@ -393,6 +448,7 @@ struct __rules: View {
         pendingReload = false
         miredsOffset = roomOffset(selectedGroupIndex)
         reloadLinkState()
+        loadPauseState()
         // Always read this room's OWN rules, so its sync state tells the truth
         // even when it is linked to other rooms.
         guard let groupIdx = Int(selectedGroupIndex) else { return }
@@ -428,6 +484,63 @@ struct __rules: View {
         guard pendingReload || requestedGroup != selectedGroupIndex else { return false }
         loadSegments()
         return true
+    }
+
+    // MARK: - Circadian pause (manual colour)
+
+    /// Reads this room's pause sensor. Independent of `isLoading`: it does not
+    /// touch the rules. Ignored if the room changed meanwhile or the read failed.
+    private func loadPauseState() {
+        guard let groupIdx = Int(selectedGroupIndex) else { return }
+        let requestedGroup = selectedGroupIndex
+        fetchRoomOverrideState(groupIndex: groupIdx) { paused in
+            guard requestedGroup == selectedGroupIndex, let paused = paused else { return }
+            isPaused = paused
+        }
+    }
+
+    /// Pauses this room's circadian, then sends the colour. Never goes through
+    /// applyUpdate: the schedule on the bridge is not touched.
+    private func applyManualColorToRoom(hue: Int, sat: Int, bri: Int) {
+        guard !isChangingPause, let groupIdx = Int(selectedGroupIndex) else { return }
+        let requestedGroup = selectedGroupIndex
+        isChangingPause = true
+        applyManualColor(groupIndex: groupIdx, hue: hue, sat: sat, bri: bri) { ok, message in
+            isChangingPause = false
+            if !ok {
+                alertMessage = message
+                showAlert = true
+            }
+            guard requestedGroup == selectedGroupIndex else { return }
+            if ok {
+                isPaused = true
+                loadGroups()  // refresh the room's colour (sheet starting point)
+            } else {
+                // The pause may be set even if the colour failed: show the truth.
+                loadPauseState()
+            }
+        }
+    }
+
+    /// Resumes the circadian and, if the global switch is on, sends the current
+    /// segment's colour right away (base temp + the offset of the rules on the bridge).
+    private func resumeCircadianInRoom() {
+        guard !isChangingPause, let groupIdx = Int(selectedGroupIndex) else { return }
+        var ct: Int? = nil
+        if let i = currentSegmentIndex, listOfSegments[i].synced == .synced {
+            ct = clampMireds(listOfSegments[i].temp + (pushedOffset ?? miredsOffset))
+        }
+        let requestedGroup = selectedGroupIndex
+        isChangingPause = true
+        resumeCircadian(groupIndex: groupIdx, ct: ct) { ok, message in
+            isChangingPause = false
+            if !ok {
+                alertMessage = message
+                showAlert = true
+            }
+            guard requestedGroup == selectedGroupIndex else { return }
+            if ok { isPaused = false } else { loadPauseState() }
+        }
     }
 
     // MARK: - Link helpers

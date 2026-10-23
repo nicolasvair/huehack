@@ -161,7 +161,10 @@ func sendPUTGroup(ip: String, groupIndex: Int, name: String, lights: [String], c
 }
 
 func sendDELETEGroup(ip: String, groupIndex: Int, completion: @escaping (Bool) -> Void) {
-    guard let url = URL(string: "http://\(ip)/api/\(username)/groups/\(groupIndex)") else { return }
+    guard let url = URL(string: "http://\(ip)/api/\(username)/groups/\(groupIndex)") else {
+        completion(false)
+        return
+    }
     var request = URLRequest(url: url)
     request.httpMethod = TypeRequest.DELETE.rawValue
     URLSession.shared.dataTask(with: request) { _, _, error in

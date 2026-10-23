@@ -67,15 +67,28 @@ struct __roomsManage: View {
         ) {
             Button("Supprimer", role: .destructive) {
                 if let idx = pendingDelete, let id = Int(idx) {
-                    sendDELETEGroup(ip: ip, groupIndex: id) { _ in
-                        DispatchQueue.main.async { loadData() }
-                    }
+                    deleteRoom(id)
                 }
             }
         } message: {
-            Text("Les règles HUEHACK associées resteront sur le bridge.")
+            Text("Ses règles HUEHACK et son capteur de pause seront aussi supprimés du bridge.")
         }
         .onAppear { loadData() }
+    }
+
+    /// Removes the room's HUEHACK rules (segments + pause reset rule) and its pause
+    /// sensor first — they reference the group — then the group itself. The group
+    /// is deleted even if the cleanup partly failed (leftovers can be removed from
+    /// Réglages → "Supprimer les règles HUEHACK du bridge").
+    private func deleteRoom(_ id: Int) {
+        isLoading = true
+        deleteAllHUEHACKRulesForGroup(indexGroup: id) { _ in
+            deleteRoomOverride(groupIndex: id) { _ in
+                sendDELETEGroup(ip: ip, groupIndex: id) { _ in
+                    DispatchQueue.main.async { loadData() }
+                }
+            }
+        }
     }
 
     private func loadData() {

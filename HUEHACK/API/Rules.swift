@@ -79,7 +79,9 @@ func lastPushedOffset(groupIndex: Int) -> Int? {
 
 /// Parses `HUEHACK-<group>-<rule>` structurally (works for any number of digits,
 /// so group 100 no longer collides with group 10). Returns nil for any other name,
-/// including HUEHACK's own non-segment rules (e.g. `HUEHACK-HEARTBEAT`).
+/// including HUEHACK's own non-segment rules (e.g. `HUEHACK-HEARTBEAT`, and
+/// `HUEHACK-OVRRESET-<g>`: "OVRRESET" is not a number), so per-group deletes and
+/// read-backs never touch the pause reset rule.
 func parseHUEHACKRuleName(_ name: String) -> (group: Int, rule: Int)? {
     let parts = name.split(separator: "-", omittingEmptySubsequences: false)
     guard parts.count == 3, parts[0] == "HUEHACK",
@@ -172,6 +174,9 @@ let rulesSentSuccessMessage = "All rules were correctly sent"
 /// Completes on main with `rulesSentSuccessMessage` on success, otherwise an error
 /// string (which never contains "correctly"). If the existing rules cannot be
 /// read or deleted, nothing is posted.
+/// Each rule also checks the room's pause sensor (`HUEHACK-OVR-<g>`, found or
+/// created here, its status left untouched: a paused room stays paused). If that
+/// sensor cannot be obtained, the rules are posted without the pause condition.
 func createRulesFromlistOfSegments(listOfSegments: [Segment], indexGroup: Int, offset: Int = 0, completion: @escaping (String) -> Void) {
     deleteAllHUEHACKRulesForGroup(indexGroup: indexGroup) { deleted in
         guard deleted else {
@@ -179,13 +184,15 @@ func createRulesFromlistOfSegments(listOfSegments: [Segment], indexGroup: Int, o
             return
         }
 
-        let indiceGlobalOnOff = indexGlobalOnOff
-        let indiceTimer = indexTimer
-        var failedRules = [String]()
+        ensureOverrideSensor(groupIndex: indexGroup) { indiceOverride in
+            if indiceOverride == nil {
+                print("HUEHACK: no pause sensor for group \(indexGroup) — rules posted without the pause condition")
+            }
+            let indiceGlobalOnOff = indexGlobalOnOff
+            let indiceTimer = indexTimer
+            var failedRules = [String]()
 
-        // Posted one after the other: ~11 parallel POSTs can overload the bridge.
-        func postNext(_ indice: Int) {
-            guard indice < listOfSegments.count else {
+            func finish() {
                 DispatchQueue.main.async {
                     saveSegmentMeta(segments: listOfSegments, groupIndex: indexGroup, offset: offset)
                     if failedRules.isEmpty {
@@ -194,29 +201,47 @@ func createRulesFromlistOfSegments(listOfSegments: [Segment], indexGroup: Int, o
                         completion("Erreur sur les règles : \(failedRules.joined(separator: ", "))")
                     }
                 }
-                return
             }
-            let nextIndex = (indice + 1) % listOfSegments.count
-            sendPOSTRuleRequest(ip: ip,
-                                start: listOfSegments[indice].hourStart,
-                                end: listOfSegments[nextIndex].hourStart,
-                                temp: clampMireds(listOfSegments[indice].temp + offset),
-                                indexGroup: indexGroup,
-                                indexRègle: indice,
-                                indexTimer: indiceTimer,
-                                indexGobalOnOff: indiceGlobalOnOff) { response in
-                if !response.contains("\"success\"") {
-                    failedRules.append(String(format: "%02d", indice))
-                }
-                postNext(indice + 1)
-            }
-        }
 
-        postNext(0)
+            // Posted one after the other: ~11 parallel POSTs can overload the bridge.
+            func postNext(_ indice: Int) {
+                guard indice < listOfSegments.count else {
+                    guard let indiceOverride = indiceOverride else {
+                        finish()
+                        return
+                    }
+                    // Auto-resume when the room is switched off (best effort).
+                    ensureOverrideResetRule(groupIndex: indexGroup, overrideIndex: indiceOverride) { ok in
+                        if !ok { print("HUEHACK: reset rule not installed for group \(indexGroup)") }
+                        finish()
+                    }
+                    return
+                }
+                let nextIndex = (indice + 1) % listOfSegments.count
+                sendPOSTRuleRequest(ip: ip,
+                                    start: listOfSegments[indice].hourStart,
+                                    end: listOfSegments[nextIndex].hourStart,
+                                    temp: clampMireds(listOfSegments[indice].temp + offset),
+                                    indexGroup: indexGroup,
+                                    indexRègle: indice,
+                                    indexTimer: indiceTimer,
+                                    indexGobalOnOff: indiceGlobalOnOff,
+                                    indexOverride: indiceOverride) { response in
+                    if !response.contains("\"success\"") {
+                        failedRules.append(String(format: "%02d", indice))
+                    }
+                    postNext(indice + 1)
+                }
+            }
+
+            postNext(0)
+        }
     }
 }
 
-func sendPOSTRuleRequest(ip: String, start: DateComponents, end: DateComponents, temp: Int, indexGroup:Int, indexRègle: Int, indexTimer: Int, indexGobalOnOff: Int, completion: @escaping (String) -> Void) {
+/// `indexOverride`: the room's pause sensor. When given, the rule gets a 4th
+/// condition `/sensors/<ovr>/state/status eq 0`; nil keeps the 3-condition rule.
+func sendPOSTRuleRequest(ip: String, start: DateComponents, end: DateComponents, temp: Int, indexGroup:Int, indexRègle: Int, indexTimer: Int, indexGobalOnOff: Int, indexOverride: Int? = nil, completion: @escaping (String) -> Void) {
     guard let url = URL(string: "http://\(ip)/api/\(username)/rules") else {
         print("Invalid URL")
         completion("Invalid URL")
@@ -242,6 +267,19 @@ func sendPOSTRuleRequest(ip: String, start: DateComponents, end: DateComponents,
     let indexGroupString = String(format: "%02d", indexGroup)
     let indexRègleString = String(format: "%02d", indexRègle)
 
+    // Per-room pause: the rule only fires while the room's OVR sensor is 0.
+    var overrideCondition = ""
+    if let indexOverride = indexOverride {
+        overrideCondition = """
+        ,
+                        {
+                            "address": "/sensors/\(indexOverride)/state/status",
+                            "operator": "eq",
+                            "value": "0"
+                        }
+        """
+    }
+
     let body = """
     {
             "name": "HUEHACK-\(indexGroupString)-\(indexRègleString)",
@@ -260,7 +298,7 @@ func sendPOSTRuleRequest(ip: String, start: DateComponents, end: DateComponents,
                     "address": "/sensors/\(indexGobalOnOff)/state/status",
                     "operator": "eq",
                     "value": "0"
-                }
+                }\(overrideCondition)
             ],
             "actions": [
                 {
@@ -398,7 +436,9 @@ func segmentFromRule(rule: Rule) -> Segment? {
     guard timeFormatted.count >= 2,
           let hour = Int(timeFormatted[0]), let minute = Int(timeFormatted[1]) else { return nil }
 
-    guard let temp = rule.actions?.first?.body.ct else { return nil }
+    // Found by address, like the time condition: the group action carrying a ct.
+    guard let temp = rule.actions?.first(where: { $0.address.hasSuffix("/action") && $0.body.ct != nil })?.body.ct
+    else { return nil }
 
     return Segment(name: name, hourStart: DateComponents(hour: hour, minute: minute), temp: temp, synced: .synced)
 }

@@ -49,10 +49,32 @@ func unlinkRoom(_ groupIndex: String) {
     for peer in roomLinks(groupIndex) {
         var peerLinks = Set(roomLinks(peer))
         peerLinks.remove(groupIndex)
-        // A group of one is not a group.
-        setRoomLinks(peerLinks.count > 1 ? peerLinks : [], for: peer)
+        // `peerLinks` excludes `peer` itself: one remaining entry still means a
+        // group of two. An empty set (group of one) is cleared by setRoomLinks.
+        setRoomLinks(peerLinks, for: peer)
     }
     setRoomLinks([], for: groupIndex)
+}
+
+/// Makes the rooms linked to `groupIndex` exactly `selection` (multi-select UI).
+/// Unticked rooms leave the group (the others stay linked together); ticked rooms
+/// join it — a ticked room that already belongs to another group brings that whole
+/// group along, since links are transitive.
+/// Returns the rooms that were not in the group before and now are: they still
+/// hold their old schedule on the bridge and need a push.
+@discardableResult
+func updateRoomLinks(for groupIndex: String, to selection: Set<String>) -> [String] {
+    let before = Set(roomLinkGroup(groupIndex))
+    let selection = selection.subtracting([groupIndex])
+    let current = Set(roomLinks(groupIndex))
+
+    for removed in current.subtracting(selection) {
+        unlinkRoom(removed)
+    }
+    for added in selection.subtracting(current) {
+        linkRooms(groupIndex, added)
+    }
+    return sortedIndices(Set(roomLinkGroup(groupIndex)).subtracting(before))
 }
 
 /// Drop every link of every room in the group of `groupIndex`.
@@ -79,6 +101,14 @@ func migrateAndPruneRoomLinks(existingIndices: [String]) {
         let links = Set(roomLinks(idx))
         let alive = links.intersection(existing)
         if alive != links { setRoomLinks(alive, for: idx) }
+    }
+
+    // Repair groups that are not fully connected (defensive: links are written
+    // one room at a time): every member must list every other member.
+    for idx in existingIndices {
+        for peer in roomLinks(idx) where !roomLinks(peer).contains(idx) {
+            linkRooms(idx, peer)
+        }
     }
 }
 

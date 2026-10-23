@@ -23,6 +23,7 @@ struct __rules: View {
 
     @State private var linkedRooms: [String] = []  // rooms sharing this room's schedule
     @State private var linksChanged = false        // a link was just added → linked rooms need a push
+    @State private var showLinkSheet = false
 
     @State private var isEditing = false
     @State private var isLoading = false
@@ -33,6 +34,7 @@ struct __rules: View {
     var body: some View {
         VStack(spacing: 0) {
             topBar
+            sharedScheduleBanner
             editBar
             segmentList
         }
@@ -62,6 +64,16 @@ struct __rules: View {
         }
         .sheet(isPresented: $showOffsetSheet) {
             OffsetEditorSheet(offset: $miredsOffset)
+        }
+        .sheet(isPresented: $showLinkSheet) {
+            LinkRoomsSheet(
+                roomIndex: selectedGroupIndex,
+                otherRooms: otherRooms,
+                groups: groups,
+                initialSelection: Set(linkedRooms)
+            ) { selection in
+                applyLinkSelection(selection)
+            }
         }
         .alert("Bridge", isPresented: $showAlert) {
             Button("OK", role: .cancel) {}
@@ -96,7 +108,8 @@ struct __rules: View {
                 }
             }
             Spacer()
-            linkMenu
+            copyMenu
+            linkButton
             Button { showOffsetSheet = true } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "dial.medium").font(.caption)
@@ -120,31 +133,26 @@ struct __rules: View {
         .padding(.vertical, 8)
     }
 
-    @ViewBuilder
-    private var linkMenu: some View {
+    /// Link control: a big icon-only button opening a multi-select sheet.
+    /// Kept separate from "copy" so its purpose is obvious.
+    private var linkButton: some View {
+        Button { showLinkSheet = true } label: {
+            Image(systemName: linkedRooms.isEmpty ? "link" : "link.circle.fill")
+                .font(.title)
+                .foregroundStyle(linkedRooms.isEmpty ? AnyShapeStyle(.secondary) : AnyShapeStyle(.accent))
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .disabled(groups.isEmpty || selectedGroupIndex.isEmpty)
+        .accessibilityLabel(linkedRooms.isEmpty
+                            ? "Lier cette pièce à d'autres pièces"
+                            : "Liée à \(linkedRooms.count) pièce(s)")
+    }
+
+    /// One-shot copy of another room's schedule (no lasting link).
+    private var copyMenu: some View {
         Menu {
-            Section("Lier cette pièce à") {
-                if otherRooms.isEmpty {
-                    Text("Aucune autre pièce")
-                } else {
-                    ForEach(otherRooms, id: \.self) { idx in
-                        Toggle(isOn: Binding(
-                            get: { linkedRooms.contains(idx) },
-                            set: { _ in toggleLink(idx) }
-                        )) {
-                            Text(groups[idx]?.name ?? idx)
-                        }
-                    }
-                }
-            }
-
-            if !linkedRooms.isEmpty {
-                Button(role: .destructive) { unlinkAll() } label: {
-                    Label("Tout délier", systemImage: "link.badge.minus")
-                }
-            }
-
-            Menu {
+            Section("Copier les horaires depuis") {
                 if otherRooms.isEmpty {
                     Text("Aucune autre pièce")
                 } else {
@@ -152,17 +160,36 @@ struct __rules: View {
                         Button(groups[idx]?.name ?? idx) { copySegments(from: idx) }
                     }
                 }
-            } label: {
-                Label("Copier les horaires depuis", systemImage: "doc.on.doc")
             }
         } label: {
-            Image(systemName: linkedRooms.isEmpty ? "link" : "link.circle.fill")
-                .font(.title2)
-                .foregroundStyle(linkedRooms.isEmpty ? AnyShapeStyle(.secondary) : AnyShapeStyle(.accent))
+            Image(systemName: "doc.on.doc")
+                .font(.title3)
+                .foregroundStyle(.secondary)
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
         }
-        .accessibilityLabel(linkedRooms.isEmpty
-                            ? "Lier cette pièce"
-                            : "Liée à \(linkedRooms.count) pièce(s)")
+        .accessibilityLabel("Copier les horaires d'une autre pièce")
+    }
+
+    /// Reminds the user that this schedule is shared; tap to edit the links.
+    @ViewBuilder
+    private var sharedScheduleBanner: some View {
+        if !linkedRooms.isEmpty {
+            Button { showLinkSheet = true } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "link")
+                    Text("Planning partagé avec \(linkedRooms.map { groups[$0]?.name ?? $0 }.joined(separator: ", "))")
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                    Spacer(minLength: 0)
+                }
+                .font(.caption)
+                .foregroundStyle(.accent)
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal)
+            .padding(.bottom, 4)
+        }
     }
 
     @ViewBuilder
@@ -390,29 +417,28 @@ struct __rules: View {
 
     /// Every other room on the bridge, sorted by index.
     private var otherRooms: [String] {
-        groupsIndices.filter { $0 != selectedGroupIndex }
+        sortedIndices(groupsIndices.filter { $0 != selectedGroupIndex })
     }
 
     private func reloadLinkState() {
         linkedRooms = roomLinks(selectedGroupIndex)
     }
 
-    private func toggleLink(_ idx: String) {
-        if linkedRooms.contains(idx) {
-            // The room we untick leaves the group; the others stay linked together.
-            unlinkRoom(idx)
-        } else {
-            linkRooms(selectedGroupIndex, idx)
-            // Newly linked rooms still hold their old schedule until the next push.
-            linksChanged = true
-        }
+    /// Applies the checklist from LinkRoomsSheet. Rooms that join the group still
+    /// hold their old schedule on the bridge, so this room's schedule is pushed to
+    /// the whole group right away — linked rooms then really share one schedule,
+    /// instead of depending on an "Update" flag that is lost when leaving the view.
+    private func applyLinkSelection(_ selection: Set<String>) {
+        let joined = updateRoomLinks(for: selectedGroupIndex, to: selection)
         linkedRooms = roomLinks(selectedGroupIndex)
-    }
-
-    private func unlinkAll() {
-        unlinkWholeGroup(selectedGroupIndex)
-        linkedRooms = []
-        linksChanged = false
+        if linkedRooms.isEmpty { linksChanged = false }
+        guard !joined.isEmpty else { return }
+        if listOfSegments.isEmpty || isLoading {
+            // Schedule not loaded yet: fall back to the Update button.
+            linksChanged = true
+        } else {
+            applyUpdate()
+        }
     }
 
     private func copySegments(from sourceIdx: String) {
@@ -498,6 +524,108 @@ struct __rules: View {
         }
 
         pushNext()
+    }
+}
+
+// MARK: - Link editor sheet
+
+/// Multi-select checklist: tick every room that should share this room's schedule.
+struct LinkRoomsSheet: View {
+    let roomIndex: String
+    let otherRooms: [String]
+    let groups: [String: RoomResponse]
+    let initialSelection: Set<String>
+    let onValidate: (Set<String>) -> Void
+
+    @State private var selection = Set<String>()
+    @Environment(\.dismiss) private var dismiss
+
+    private var roomName: String { groups[roomIndex]?.name ?? roomIndex }
+
+    /// Rooms that would join the group on validation (ticked ones plus, transitively,
+    /// the other members of their own link group).
+    private var joining: Set<String> {
+        var result = Set<String>()
+        for idx in selection.subtracting(initialSelection) {
+            result.formUnion(roomLinkGroup(idx))
+        }
+        return result.subtracting(initialSelection).subtracting([roomIndex])
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    if otherRooms.isEmpty {
+                        Text("Aucune autre pièce").foregroundStyle(.secondary)
+                    }
+                    ForEach(otherRooms, id: \.self) { idx in
+                        Button { toggle(idx) } label: { row(idx) }
+                            .buttonStyle(.plain)
+                    }
+                } header: {
+                    Text("Partager le planning de \(roomName) avec")
+                } footer: {
+                    Text(footer)
+                }
+            }
+            .navigationTitle("Pièces liées")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Annuler") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Valider") {
+                        onValidate(selection)
+                        dismiss()
+                    }
+                    .disabled(selection == initialSelection)
+                }
+            }
+        }
+        .onAppear { selection = initialSelection }
+        .presentationDetents([.medium, .large])
+    }
+
+    @ViewBuilder
+    private func row(_ idx: String) -> some View {
+        let isOn = selection.contains(idx)
+        // Members of another link group: ticking one brings its whole group along.
+        let otherGroup = roomLinks(idx).filter { $0 != roomIndex && !initialSelection.contains($0) }
+        HStack(spacing: 12) {
+            Image(systemName: isOn ? "checkmark.circle.fill" : "circle")
+                .font(.title3)
+                .foregroundStyle(isOn ? AnyShapeStyle(.accent) : AnyShapeStyle(.secondary))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(groups[idx]?.name ?? idx)
+                if !initialSelection.contains(idx), !otherGroup.isEmpty {
+                    Text("déjà liée à \(otherGroup.map { groups[$0]?.name ?? $0 }.joined(separator: ", "))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+        }
+        .contentShape(Rectangle())
+    }
+
+    private func toggle(_ idx: String) {
+        if selection.contains(idx) { selection.remove(idx) } else { selection.insert(idx) }
+    }
+
+    private var footer: String {
+        var text = "Les pièces liées partagent un seul planning, modifiable depuis n'importe laquelle d'entre elles. Chaque pièce garde son propre offset."
+        let names = sortedIndices(joining).map { groups[$0]?.name ?? $0 }
+        if !names.isEmpty {
+            text += "\n\nValider enverra le planning de \(roomName) à : \(names.joined(separator: ", "))."
+        }
+        let removed = initialSelection.subtracting(selection)
+        if !removed.isEmpty {
+            let removedNames = sortedIndices(removed).map { groups[$0]?.name ?? $0 }
+            text += "\n\nDéliées (gardent leur planning actuel) : \(removedNames.joined(separator: ", "))."
+        }
+        return text
     }
 }
 

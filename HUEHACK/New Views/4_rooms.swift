@@ -9,6 +9,7 @@ struct __rooms: View {
 
     @State private var groups = [String: RoomResponse]()
     @State private var groupsIndices = [String]()
+    @State private var linkCounts = [String: Int]()  // refreshed on every appear (links edited in __rules)
 
     let columns = [GridItem(.flexible()), GridItem(.flexible())]
 
@@ -25,7 +26,7 @@ struct __rooms: View {
                                 name: room.name,
                                 ct: room.action.ct ?? 300,
                                 offset: roomOffset(idx),
-                                linkedCount: roomLinks(idx).count
+                                linkedCount: linkCounts[idx] ?? 0
                             )
                         }
                         .buttonStyle(.plain)
@@ -34,19 +35,28 @@ struct __rooms: View {
             }
             .padding()
         }
-        .onAppear { loadGroups() }
+        .onAppear {
+            refreshLinkCounts()
+            loadGroups()
+        }
+    }
+
+    private func refreshLinkCounts() {
+        linkCounts = Dictionary(uniqueKeysWithValues: groupsIndices.map { ($0, roomLinks($0).count) })
     }
 
     private func loadGroups() {
         if demoMode {
             groups = demoGroups
             groupsIndices = sortedIndices(demoGroups.keys)
+            refreshLinkCounts()
             return
         }
         sendGETGroups(ip: ip, which: nil) { response in
             groups = response
             groupsIndices = sortedIndices(response.map { $0.key })
             migrateAndPruneRoomLinks(existingIndices: groupsIndices)
+            refreshLinkCounts()
         }
     }
 }
@@ -66,9 +76,11 @@ struct RoomCard: View {
             .overlay(alignment: .topTrailing) {
                 if linkedCount > 0 {
                     Image(systemName: "link")
-                        .font(.title2)
-                        .foregroundStyle(.black.opacity(0.5))
-                        .padding(10)
+                        .font(.title2.weight(.semibold))
+                        .foregroundStyle(.black.opacity(0.6))
+                        .padding(8)
+                        .background(.white.opacity(0.35), in: Circle())
+                        .padding(6)
                         .accessibilityLabel("Liée à \(linkedCount) pièce(s)")
                 }
             }

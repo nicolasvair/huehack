@@ -191,7 +191,21 @@ chaque membre stocke la liste des autres dans `huehack-links-<groupIndex>` (JSON
 - Le lien n'agit qu'au moment du push : `Update` envoie le planning à la pièce courante puis à chaque pièce liée,
   en réappliquant l'offset propre à chacune.
 - `migrateAndPruneRoomLinks(existingIndices:)` convertit l'ancien stockage master/follower
-  (`huehack-linkedTo-<idx>`) et supprime les liens vers des pièces disparues.
+  (`huehack-linkedTo-<idx>`), supprime les liens vers des pièces disparues et répare les groupes
+  incomplets (chaque membre doit lister tous les autres).
+- `updateRoomLinks(for:to:)` applique une sélection multiple : les pièces décochées quittent le groupe
+  (les autres restent liées entre elles), les pièces cochées le rejoignent — une pièce déjà dans un autre
+  groupe amène tout son groupe (fusion transitive). Retourne les pièces qui viennent de rejoindre le groupe.
+
+UI (`2_rules.swift`) :
+- Bouton **icône seule** 🔗 (`.font(.title)`, zone 44pt) → sheet `LinkRoomsSheet` : checklist multi-sélection
+  des autres pièces, « déjà liée à … » si une pièce appartient à un autre groupe, Annuler / Valider.
+- À la validation, si des pièces rejoignent le groupe, le planning de la pièce courante est **poussé
+  immédiatement** à tout le groupe (`applyUpdate`) — sinon les pièces ajoutées garderaient leur ancien
+  planning. Si le planning n'est pas encore chargé, fallback sur le bouton Update (`linksChanged`).
+- Bandeau « Planning partagé avec … » sous la barre du haut (tap → même sheet).
+- « Copier les horaires depuis » est un menu séparé (icône `doc.on.doc`) : copie ponctuelle, sans lien.
+- `4_rooms.swift` : badge 🔗 sur les cartes liées, compteur rafraîchi à chaque `onAppear`.
 
 ## Build Info
 - No external package manager (SunCalc embedded locally)

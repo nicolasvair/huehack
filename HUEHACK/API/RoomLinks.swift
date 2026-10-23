@@ -58,8 +58,8 @@ func unlinkRoom(_ groupIndex: String) {
 
 /// Makes the rooms linked to `groupIndex` exactly `selection` (multi-select UI).
 /// Unticked rooms leave the group (the others stay linked together); ticked rooms
-/// join it — a ticked room that already belongs to another group brings that whole
-/// group along, since links are transitive.
+/// join it — a ticked room that already belongs to another group leaves that group
+/// (whose other members stay linked together) instead of bringing it along.
 /// Returns the rooms that were not in the group before and now are: they still
 /// hold their old schedule on the bridge and need a push.
 @discardableResult
@@ -72,6 +72,7 @@ func updateRoomLinks(for groupIndex: String, to selection: Set<String>) -> [Stri
         unlinkRoom(removed)
     }
     for added in selection.subtracting(current) {
+        unlinkRoom(added)
         linkRooms(groupIndex, added)
     }
     return sortedIndices(Set(roomLinkGroup(groupIndex)).subtracting(before))

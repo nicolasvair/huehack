@@ -195,11 +195,11 @@ chaque membre stocke la liste des autres dans `huehack-links-<groupIndex>` (JSON
   incomplets (chaque membre doit lister tous les autres).
 - `updateRoomLinks(for:to:)` applique une sélection multiple : les pièces décochées quittent le groupe
   (les autres restent liées entre elles), les pièces cochées le rejoignent — une pièce déjà dans un autre
-  groupe amène tout son groupe (fusion transitive). Retourne les pièces qui viennent de rejoindre le groupe.
+  groupe **quitte** son ancien groupe (les autres membres y restent liés entre eux), pas de fusion. Retourne les pièces qui viennent de rejoindre le groupe.
 
 UI (`2_rules.swift`) :
 - Bouton **icône seule** 🔗 (`.font(.title)`, zone 44pt) → sheet `LinkRoomsSheet` : checklist multi-sélection
-  des autres pièces, « déjà liée à … » si une pièce appartient à un autre groupe, Annuler / Valider.
+  des autres pièces, « déjà liée à … » si une pièce appartient à un autre groupe (« quittera son lien avec … » une fois cochée), Annuler / Valider.
 - À la validation, si des pièces rejoignent le groupe, le planning de la pièce courante est **poussé
   immédiatement** à tout le groupe (`applyUpdate`) — sinon les pièces ajoutées garderaient leur ancien
   planning. Si le planning n'est pas encore chargé, fallback sur le bouton Update (`linksChanged`).

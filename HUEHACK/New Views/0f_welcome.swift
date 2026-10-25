@@ -200,7 +200,8 @@ struct _f_welcome: View {
                 pushNext()
                 return
             }
-            createRulesFromlistOfSegments(listOfSegments: listOfSegments, indexGroup: idx) { response in
+            createRulesFromlistOfSegments(listOfSegments: listOfSegments, indexGroup: idx,
+                                          fade: roomFade(idxString)) { response in
                 if response.contains("correctly") { pushedRooms += 1 } else { failedRooms.append(idxString) }
                 message = "\(pushedRooms + failedRooms.count)/\(rooms.count)"
                 pushNext()

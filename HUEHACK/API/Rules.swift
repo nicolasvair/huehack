@@ -33,6 +33,7 @@ struct Action: Decodable {
 }
 
 // MARK: - Action Body Structure
+// Other keys of a segment action (e.g. `transitiontime`) are ignored by the decoder.
 struct ActionBody: Decodable {
     let status: Int?
     let ct: Int?
@@ -50,15 +51,18 @@ private struct SegmentMeta: Codable {
     var baseTemp: Int? = nil
     /// Room offset (mireds) applied when this schedule was pushed.
     var offset: Int? = nil
+    /// Fade (`transitiontime`, deciseconds) sent with this schedule. Nil for meta
+    /// saved by builds that sent no transitiontime (bridge default, 0.4 s).
+    var fade: Int? = nil
 }
 
 func clampMireds(_ value: Int) -> Int {
     min(500, max(153, value))
 }
 
-func saveSegmentMeta(segments: [Segment], groupIndex: Int, offset: Int = 0) {
+func saveSegmentMeta(segments: [Segment], groupIndex: Int, offset: Int = 0, fade: Int = defaultRoomFade) {
     let meta = segments.map {
-        SegmentMeta(name: $0.name, show: $0.show ?? true, baseTemp: $0.temp, offset: offset)
+        SegmentMeta(name: $0.name, show: $0.show ?? true, baseTemp: $0.temp, offset: offset, fade: fade)
     }
     if let encoded = try? JSONEncoder().encode(meta) {
         UserDefaults.standard.set(encoded, forKey: "huehack-meta-\(String(format: "%02d", groupIndex))")
@@ -75,6 +79,14 @@ private func loadSegmentMeta(_ groupIndex: Int) -> [SegmentMeta] {
 /// or nil if unknown (nothing pushed yet, or pushed by an older build).
 func lastPushedOffset(groupIndex: Int) -> Int? {
     loadSegmentMeta(groupIndex).first?.offset
+}
+
+/// Fade (deciseconds) used the last time this app pushed rules for this group, or
+/// nil if nothing was pushed. Meta from builds without fade → the bridge default
+/// (those rules carried no transitiontime).
+func lastPushedFade(groupIndex: Int) -> Int? {
+    guard let first = loadSegmentMeta(groupIndex).first else { return nil }
+    return first.fade ?? defaultRoomFade
 }
 
 /// Parses `HUEHACK-<group>-<rule>` structurally (works for any number of digits,
@@ -177,7 +189,9 @@ let rulesSentSuccessMessage = "All rules were correctly sent"
 /// Each rule also checks the room's pause sensor (`HUEHACK-OVR-<g>`, found or
 /// created here, its status left untouched: a paused room stays paused). If that
 /// sensor cannot be obtained, the rules are posted without the pause condition.
-func createRulesFromlistOfSegments(listOfSegments: [Segment], indexGroup: Int, offset: Int = 0, completion: @escaping (String) -> Void) {
+/// - `fade`: `transitiontime` (deciseconds) sent with every ct, remembered in the
+///   meta like the offset (`lastPushedFade`).
+func createRulesFromlistOfSegments(listOfSegments: [Segment], indexGroup: Int, offset: Int = 0, fade: Int = defaultRoomFade, completion: @escaping (String) -> Void) {
     deleteAllHUEHACKRulesForGroup(indexGroup: indexGroup) { deleted in
         guard deleted else {
             completion("Erreur : impossible de lire ou supprimer les règles existantes du bridge. Rien n'a été envoyé.")
@@ -194,7 +208,7 @@ func createRulesFromlistOfSegments(listOfSegments: [Segment], indexGroup: Int, o
 
             func finish() {
                 DispatchQueue.main.async {
-                    saveSegmentMeta(segments: listOfSegments, groupIndex: indexGroup, offset: offset)
+                    saveSegmentMeta(segments: listOfSegments, groupIndex: indexGroup, offset: offset, fade: fade)
                     if failedRules.isEmpty {
                         completion(rulesSentSuccessMessage)
                     } else {
@@ -226,7 +240,8 @@ func createRulesFromlistOfSegments(listOfSegments: [Segment], indexGroup: Int, o
                                     indexRègle: indice,
                                     indexTimer: indiceTimer,
                                     indexGobalOnOff: indiceGlobalOnOff,
-                                    indexOverride: indiceOverride) { response in
+                                    indexOverride: indiceOverride,
+                                    transitionTime: fade) { response in
                     if !response.contains("\"success\"") {
                         failedRules.append(String(format: "%02d", indice))
                     }
@@ -241,7 +256,9 @@ func createRulesFromlistOfSegments(listOfSegments: [Segment], indexGroup: Int, o
 
 /// `indexOverride`: the room's pause sensor. When given, the rule gets a 4th
 /// condition `/sensors/<ovr>/state/status eq 0`; nil keeps the 3-condition rule.
-func sendPOSTRuleRequest(ip: String, start: DateComponents, end: DateComponents, temp: Int, indexGroup:Int, indexRègle: Int, indexTimer: Int, indexGobalOnOff: Int, indexOverride: Int? = nil, completion: @escaping (String) -> Void) {
+/// `transitionTime`: deciseconds, added to the action body next to `ct`; nil sends
+/// `ct` alone (bridge default 0.4 s).
+func sendPOSTRuleRequest(ip: String, start: DateComponents, end: DateComponents, temp: Int, indexGroup:Int, indexRègle: Int, indexTimer: Int, indexGobalOnOff: Int, indexOverride: Int? = nil, transitionTime: Int? = nil, completion: @escaping (String) -> Void) {
     guard let url = URL(string: "http://\(ip)/api/\(username)/rules") else {
         print("Invalid URL")
         completion("Invalid URL")
@@ -280,6 +297,11 @@ func sendPOSTRuleRequest(ip: String, start: DateComponents, end: DateComponents,
         """
     }
 
+    var transitionField = ""
+    if let transitionTime = transitionTime {
+        transitionField = ",\n                        \"transitiontime\": \(min(65535, max(0, transitionTime)))"
+    }
+
     let body = """
     {
             "name": "HUEHACK-\(indexGroupString)-\(indexRègleString)",
@@ -305,7 +327,7 @@ func sendPOSTRuleRequest(ip: String, start: DateComponents, end: DateComponents,
                     "address": "/groups/\(indexGroup)/action",
                     "method": "PUT",
                     "body": {
-                        "ct": \(temp)
+                        "ct": \(temp)\(transitionField)
                     }
                 }
             ]

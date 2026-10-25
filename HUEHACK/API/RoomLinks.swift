@@ -6,7 +6,8 @@
 //  Links are symmetric and fully connected — every member of a group knows all
 //  the others. A room keeps its own bridge rules (and its own mireds offset),
 //  so its sync state always reflects what is really installed on the bridge.
-//  Linking only means: pushing one room pushes the whole group.
+//  Linking only means: pushing one room pushes the whole group, and the fade
+//  (transition time) is shared by the whole group.
 //
 
 import Foundation
@@ -75,7 +76,14 @@ func updateRoomLinks(for groupIndex: String, to selection: Set<String>) -> [Stri
         unlinkRoom(added)
         linkRooms(groupIndex, added)
     }
-    return sortedIndices(Set(roomLinkGroup(groupIndex)).subtracting(before))
+    let joined = sortedIndices(Set(roomLinkGroup(groupIndex)).subtracting(before))
+    // The fade is a shared link setting: newcomers adopt this room's fade, so the
+    // push that follows installs it on them too.
+    let fade = roomFade(groupIndex)
+    for room in joined {
+        setRoomFade(fade, for: room)
+    }
+    return joined
 }
 
 /// Drop every link of every room in the group of `groupIndex`.
@@ -119,6 +127,30 @@ func roomOffset(_ groupIndex: String) -> Int {
 
 func setRoomOffset(_ offset: Int, for groupIndex: String) {
     UserDefaults.standard.set(offset, forKey: "huehack-offset-\(groupIndex)")
+}
+
+/// Hue `transitiontime` (deciseconds) the bridge uses when none is sent: 0.4 s.
+let defaultRoomFade = 4
+
+private func fadeKey(_ groupIndex: String) -> String { "huehack-fade-\(groupIndex)" }
+
+/// Room fade in deciseconds (Hue `transitiontime`): `defaultRoomFade` when never set.
+/// Shared by every room of a link group (unlike the offset, which stays per room).
+func roomFade(_ groupIndex: String) -> Int {
+    guard UserDefaults.standard.object(forKey: fadeKey(groupIndex)) != nil else { return defaultRoomFade }
+    return min(65535, max(0, UserDefaults.standard.integer(forKey: fadeKey(groupIndex))))
+}
+
+/// Sets the fade of this room only. UI code should use `setLinkGroupFade`.
+func setRoomFade(_ fade: Int, for groupIndex: String) {
+    UserDefaults.standard.set(min(65535, max(0, fade)), forKey: fadeKey(groupIndex))
+}
+
+/// Sets the fade of `groupIndex` and of every room linked to it.
+func setLinkGroupFade(_ fade: Int, for groupIndex: String) {
+    for member in roomLinkGroup(groupIndex) {
+        setRoomFade(fade, for: member)
+    }
 }
 
 func sortedIndices<S: Sequence>(_ indices: S) -> [String] where S.Element == String {

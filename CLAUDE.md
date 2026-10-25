@@ -84,7 +84,7 @@ All API files reference these globals — no changes needed in API layer when co
    - Local time `in` the segment's time range
    - Global on/off sensor `eq 0` (enabled)
    - Room pause sensor `HUEHACK-OVR-{g}` `eq 0` (omitted — 3 conditions — if the sensor could not be obtained)
-3. Rule action: PUT `/groups/{id}/action` with `{"ct": <mireds>}`
+3. Rule action: PUT `/groups/{id}/action` with `{"ct": <mireds>, "transitiontime": <fade>}` — fade in deciseconds, per room (`roomFade`, UserDefaults `huehack-fade-<g>`, default 4 = 0.4 s, the bridge default), stored in the segment meta at push (`lastPushedFade`). Read-back only decodes `ct` (extra keys ignored). The rule re-fires every ~10 s: a fade > 10 s is restarted from the current colour on each tick (ease-out, longer than nominal)
 4. Rules are named `HUEHACK-{groupIndex:02d}-{ruleIndex:02d}` for identification
 5. Per room, an auto-resume rule `HUEHACK-OVRRESET-{g:02d}`: conditions `/groups/{g}/state/any_on dx` + `eq false` + OVR `eq 1` → PUT `/sensors/{ovr}/state` `{"status":0}` (switching the room off ends the pause). `parseHUEHACKRuleName` does not match it, so per-group deletes never remove it.
 6. No cloud, no Home Assistant — runs entirely on-bridge
@@ -194,6 +194,9 @@ chaque membre stocke la liste des autres dans `huehack-links-<groupIndex>` (JSON
   correspond donc toujours à ce qui est réellement installé.
 - Le lien n'agit qu'au moment du push : `Update` envoie le planning à la pièce courante puis à chaque pièce liée,
   en réappliquant l'offset propre à chacune.
+- **La transition (fade) est partagée par le groupe**, l'offset reste par pièce : `setLinkGroupFade` écrit le fade
+  sur tous les membres ; `updateRoomLinks` fait adopter le fade de la pièce courante aux pièces qui rejoignent
+  (avant le push immédiat) ; `applyUpdate` réécrit le fade sur tout le groupe avant de pousser (défensif).
 - `migrateAndPruneRoomLinks(existingIndices:)` convertit l'ancien stockage master/follower
   (`huehack-linkedTo-<idx>`), supprime les liens vers des pièces disparues et répare les groupes
   incomplets (chaque membre doit lister tous les autres).
@@ -210,6 +213,10 @@ UI (`2_rules.swift`) :
 - Bandeau « Planning partagé avec … » sous la barre du haut (tap → même sheet).
 - « Copier les horaires depuis » est un menu séparé (icône `doc.on.doc`) : copie ponctuelle, sans lien.
 - `4_rooms.swift` : badge 🔗 sur les cartes liées, compteur rafraîchi à chaque `onAppear`.
+- Bouton `dial.medium` (offset) → `OffsetEditorSheet` : offset + Picker « Transition » (Instantané, 0,4 s (défaut),
+  1 s, 2 s, 5 s, 10 s, 30 s, 1 min) avec légende (allumage, « Appliqué à toutes les pièces liées »). Icône `timer`
+  sur le bouton si fade ≠ défaut. Update apparaît si `lastPushedFade` ≠ fade courant (comme l'offset poussé).
+  `resumeCircadian` envoie aussi le fade avec le ct immédiat.
 
 ## Pause circadienne par pièce (API/RoomOverride.swift, New Views/7_manual_color.swift)
 - Bouton `paintpalette` dans la barre de `2_rules.swift` → `ManualColorSheet` (ColorPicker sans opacité + luminosité, envoi `{"on":true,"hue","sat","bri"}`). Couleur seulement, pas de mode blanc manuel.

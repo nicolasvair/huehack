@@ -476,8 +476,9 @@ func applyManualColor(groupIndex: Int, hue: Int, sat: Int, bri: Int, completion:
 
 /// Resumes the room's circadian (OVR sensor back to 0). If the global switch is on
 /// and `ct` is given (current segment, offset applied), sends it right away instead
-/// of waiting for the next tick. Completes on main with (success, message).
-func resumeCircadian(groupIndex: Int, ct: Int?, completion: @escaping (Bool, String) -> Void) {
+/// of waiting for the next tick, with `fade` (deciseconds) as its transitiontime when
+/// given — the same as the room's rules. Completes on main with (success, message).
+func resumeCircadian(groupIndex: Int, ct: Int?, fade: Int? = nil, completion: @escaping (Bool, String) -> Void) {
     if demoMode {
         demoPausedRooms.remove(String(groupIndex))
         completion(true, "")
@@ -498,7 +499,9 @@ func resumeCircadian(groupIndex: Int, ct: Int?, completion: @escaping (Bool, Str
                 let status = ((json as? [String: Any])?["state"] as? [String: Any])?["status"] as? Int
                 // Global switch off (or unknown): leave the lights as they are.
                 guard status == 0 else { completion(true, ""); return }
-                hueRequest(.PUT, "groups/\(groupIndex)/action", body: ["ct": clampMireds(ct)]) { _ in
+                var body: [String: Any] = ["ct": clampMireds(ct)]
+                if let fade = fade { body["transitiontime"] = min(65535, max(0, fade)) }
+                hueRequest(.PUT, "groups/\(groupIndex)/action", body: body) { _ in
                     // Best effort: the next tick applies it anyway.
                     completion(true, "")
                 }

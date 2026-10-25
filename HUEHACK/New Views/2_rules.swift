@@ -19,6 +19,7 @@ struct __rules: View {
     @State private var selectedGroupIndex = ""
 
     @State private var miredsOffset: Int = 0
+    @State private var fadeDeciseconds: Int = defaultRoomFade  // shared by the link group
     @State private var showOffsetSheet = false
 
     @State private var linkedRooms: [String] = []  // rooms sharing this room's schedule
@@ -33,6 +34,7 @@ struct __rules: View {
     @State private var isLoading = false
     @State private var pendingReload = false       // a reload was requested while busy
     @State private var pushedOffset: Int? = nil    // room offset used by the rules on the bridge
+    @State private var pushedFade: Int? = nil      // fade used by the rules on the bridge
     @State private var hasLoadedOnce = false
     @State private var showAlert = false
     @State private var alertMessage = ""
@@ -71,7 +73,18 @@ struct __rules: View {
             setRoomOffset(newValue, for: selectedGroupIndex)
         }
         .sheet(isPresented: $showOffsetSheet) {
-            OffsetEditorSheet(offset: $miredsOffset)
+            OffsetEditorSheet(
+                offset: $miredsOffset,
+                // Written only on user changes, to the whole link group.
+                fade: Binding(
+                    get: { fadeDeciseconds },
+                    set: { newValue in
+                        fadeDeciseconds = newValue
+                        setLinkGroupFade(newValue, for: selectedGroupIndex)
+                    }
+                ),
+                isLinked: !linkedRooms.isEmpty
+            )
         }
         .sheet(isPresented: $showLinkSheet) {
             LinkRoomsSheet(
@@ -132,9 +145,14 @@ struct __rules: View {
                 HStack(spacing: 4) {
                     Image(systemName: "dial.medium").font(.caption)
                     Text(miredsOffset == 0 ? "offset" : "\(miredsOffset > 0 ? "+" : "")\(miredsOffset)").font(.caption)
+                    if fadeDeciseconds != defaultRoomFade {
+                        Image(systemName: "timer").font(.caption)
+                    }
                 }
-                .foregroundStyle(miredsOffset == 0 ? AnyShapeStyle(.secondary) : AnyShapeStyle(.accent))
+                .foregroundStyle(miredsOffset == 0 && fadeDeciseconds == defaultRoomFade
+                                 ? AnyShapeStyle(.secondary) : AnyShapeStyle(.accent))
             }
+            .accessibilityLabel("Réglages de la pièce : offset et transition")
             Button {
                 locationManager.getSingleLocation()
                 locationManager.fetchCityName()
@@ -291,9 +309,10 @@ struct __rules: View {
 
     @ViewBuilder
     private var floatingButtons: some View {
-        // The offset is applied at push time: a new offset needs a push too.
+        // The offset and the fade are applied at push time: changing them needs a push too.
         let offsetChanged = pushedOffset != nil && pushedOffset != miredsOffset
-        let needsUpdate = linksChanged || offsetChanged
+        let fadeChanged = pushedFade != nil && pushedFade != fadeDeciseconds
+        let needsUpdate = linksChanged || offsetChanged || fadeChanged
             || listOfSegments.contains(where: { $0.synced == .notSynced || $0.hourChanged || $0.tempChanged })
         VStack {
             Spacer()
@@ -447,12 +466,14 @@ struct __rules: View {
         }
         pendingReload = false
         miredsOffset = roomOffset(selectedGroupIndex)
+        fadeDeciseconds = roomFade(selectedGroupIndex)
         reloadLinkState()
         loadPauseState()
         // Always read this room's OWN rules, so its sync state tells the truth
         // even when it is linked to other rooms.
         guard let groupIdx = Int(selectedGroupIndex) else { return }
         pushedOffset = demoMode ? nil : lastPushedOffset(groupIndex: groupIdx)
+        pushedFade = demoMode ? nil : lastPushedFade(groupIndex: groupIdx)
         if demoMode {
             listOfSegments = demoSegments
             return
@@ -530,9 +551,10 @@ struct __rules: View {
         if let i = currentSegmentIndex, listOfSegments[i].synced == .synced {
             ct = clampMireds(listOfSegments[i].temp + (pushedOffset ?? miredsOffset))
         }
+        let fade = pushedFade ?? fadeDeciseconds
         let requestedGroup = selectedGroupIndex
         isChangingPause = true
-        resumeCircadian(groupIndex: groupIdx, ct: ct) { ok, message in
+        resumeCircadian(groupIndex: groupIdx, ct: ct, fade: fade) { ok, message in
             isChangingPause = false
             if !ok {
                 alertMessage = message
@@ -616,15 +638,21 @@ struct __rules: View {
         // Capture everything now: the view state may change while the push runs.
         let requestedGroup = selectedGroupIndex
         let offset = miredsOffset
+        let fade = fadeDeciseconds
         let linked = linkedRooms
+        // The fade is shared by the link group: make sure every member has it before
+        // pushing (defensive — it is already written group-wide on change / join).
+        setLinkGroupFade(fade, for: requestedGroup)
         isLoading = true
-        // `updated` is the BASE schedule; the offset is applied (and remembered) by
-        // createRulesFromlistOfSegments.
-        createRulesFromlistOfSegments(listOfSegments: updated, indexGroup: groupIdx, offset: offset) { response in
+        // `updated` is the BASE schedule; the offset and fade are applied (and
+        // remembered) by createRulesFromlistOfSegments.
+        createRulesFromlistOfSegments(listOfSegments: updated, indexGroup: groupIdx,
+                                      offset: offset, fade: fade) { response in
             let ok = response.contains("correctly")
             if ok, requestedGroup == selectedGroupIndex {
                 listOfSegments = updated.map { var s = $0; s.synced = .synced; return s }
                 pushedOffset = offset
+                pushedFade = fade
             }
             pushToLinkedRooms(linked, base: updated) { pushed, failed in
                 linksChanged = false
@@ -645,7 +673,8 @@ struct __rules: View {
         }
     }
 
-    /// Pushes the same base schedule to every linked room, each with its own mireds offset.
+    /// Pushes the same base schedule to every linked room, each with its own mireds
+    /// offset and its fade (shared by the link group, so equal for all).
     private func pushToLinkedRooms(_ rooms: [String], base: [Segment], completion: @escaping (Int, [String]) -> Void) {
         var remaining = rooms
         var pushed = 0
@@ -663,7 +692,8 @@ struct __rules: View {
                 return
             }
             createRulesFromlistOfSegments(listOfSegments: base, indexGroup: idx,
-                                          offset: roomOffset(idxString)) { response in
+                                          offset: roomOffset(idxString),
+                                          fade: roomFade(idxString)) { response in
                 if response.contains("correctly") { pushed += 1 } else { failed.append(idxString) }
                 pushNext()
             }
@@ -763,10 +793,10 @@ struct LinkRoomsSheet: View {
     }
 
     private var footer: String {
-        var text = "Les pièces liées partagent un seul planning, modifiable depuis n'importe laquelle d'entre elles. Chaque pièce garde son propre offset."
+        var text = "Les pièces liées partagent un seul planning et une même durée de transition, modifiables depuis n'importe laquelle d'entre elles. Chaque pièce garde son propre offset."
         let names = sortedIndices(joining).map { groups[$0]?.name ?? $0 }
         if !names.isEmpty {
-            text += "\n\nValider enverra le planning de \(roomName) à : \(names.joined(separator: ", "))."
+            text += "\n\nValider enverra le planning et la transition de \(roomName) à : \(names.joined(separator: ", "))."
         }
         let removed = initialSelection.subtracting(selection)
         if !removed.isEmpty {
@@ -779,62 +809,118 @@ struct LinkRoomsSheet: View {
 
 // MARK: - Offset editor sheet
 
+/// Room options: mireds offset (per room) and fade (shared by the link group).
 struct OffsetEditorSheet: View {
     @Binding var offset: Int
+    /// Hue `transitiontime`, in deciseconds.
+    @Binding var fade: Int
+    var isLinked: Bool = false
     @Environment(\.dismiss) private var dismiss
+
+    /// Preset fades (deciseconds). 4 = bridge default.
+    private static let fadePresets = [0, 4, 10, 20, 50, 100, 300, 600]
+
+    /// Presets, plus the current value if it is not one of them (keeps the Picker valid).
+    private var fadeChoices: [Int] {
+        Self.fadePresets.contains(fade) ? Self.fadePresets : (Self.fadePresets + [fade]).sorted()
+    }
+
+    private func fadeLabel(_ deciseconds: Int) -> String {
+        switch deciseconds {
+        case 0: return "Instantané"
+        case defaultRoomFade: return "0,4 s (défaut)"
+        case let d where d >= 600 && d % 600 == 0: return "\(d / 600) min"
+        case let d where d % 10 == 0: return "\(d / 10) s"
+        default: return "\(deciseconds / 10),\(deciseconds % 10) s"
+        }
+    }
+
+    private var fadeCaption: String {
+        var text = "Adoucit le passage d'un segment au suivant. Une transition longue s'applique aussi à l'allumage : la lampe repart de sa couleur précédente puis glisse vers la bonne teinte."
+        if fade > 100 {
+            text += " Au-delà de 10 s, la transition est relancée à chaque cycle de 10 s et ralentit en fin de course."
+        }
+        if isLinked {
+            text += "\nAppliqué à toutes les pièces liées."
+        }
+        return text
+    }
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 24) {
-                Text("Fine-tuning de la pièce")
-                    .font(.headline)
-                    .padding(.top)
+            ScrollView {
+                VStack(spacing: 24) {
+                    Text("Fine-tuning de la pièce")
+                        .font(.headline)
+                        .padding(.top)
 
-                HStack(spacing: 0) {
-                    ForEach([-150, -75, 0, 75, 150], id: \.self) { step in
-                        Rectangle()
-                            .foregroundStyle(Color(mireds: Double(min(500, max(153, 300 + step)))))
+                    HStack(spacing: 0) {
+                        ForEach([-150, -75, 0, 75, 150], id: \.self) { step in
+                            Rectangle()
+                                .foregroundStyle(Color(mireds: Double(min(500, max(153, 300 + step)))))
+                        }
                     }
-                }
-                .frame(height: 50)
-                .cornerRadius(10)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
-                )
-                .padding(.horizontal)
-
-                VStack(spacing: 8) {
-                    Slider(
-                        value: Binding(
-                            get: { Double(offset) },
-                            set: { offset = (Int($0) / 25) * 25 }
-                        ),
-                        in: -200...200
+                    .frame(height: 50)
+                    .cornerRadius(10)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
                     )
                     .padding(.horizontal)
 
-                    HStack {
-                        Text("plus froid")
+                    VStack(spacing: 8) {
+                        Slider(
+                            value: Binding(
+                                get: { Double(offset) },
+                                set: { offset = (Int($0) / 25) * 25 }
+                            ),
+                            in: -200...200
+                        )
+                        .padding(.horizontal)
+
+                        HStack {
+                            Text("plus froid")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Text(offset == 0 ? "neutre" : "\(offset > 0 ? "+" : "")\(offset) mireds")
+                                .font(.caption.monospacedDigit())
+                                .fontWeight(.semibold)
+                            Spacer()
+                            Text("plus chaud")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal)
+                    }
+
+                    Button("Réinitialiser") { offset = 0 }
+                        .foregroundStyle(.secondary)
+                        .font(.callout)
+
+                    Divider()
+                        .padding(.horizontal)
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Label("Transition", systemImage: "timer")
+                                .font(.headline)
+                            Spacer()
+                            Picker("Transition", selection: $fade) {
+                                ForEach(fadeChoices, id: \.self) { value in
+                                    Text(fadeLabel(value)).tag(value)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                        }
+                        Text(fadeCaption)
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        Spacer()
-                        Text(offset == 0 ? "neutre" : "\(offset > 0 ? "+" : "")\(offset) mireds")
-                            .font(.caption.monospacedDigit())
-                            .fontWeight(.semibold)
-                        Spacer()
-                        Text("plus chaud")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     .padding(.horizontal)
                 }
-
-                Button("Réinitialiser") { offset = 0 }
-                    .foregroundStyle(.secondary)
-                    .font(.callout)
-
-                Spacer()
+                .padding(.bottom)
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -843,7 +929,7 @@ struct OffsetEditorSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium])
+        .presentationDetents([.medium, .large])
     }
 }
 

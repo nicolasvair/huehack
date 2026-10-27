@@ -78,7 +78,7 @@ All API files reference these globals — no changes needed in API layer when co
 1. Virtual sensors are created on the bridge:
    - **Sensor 171** (`indexGlobalOnOff`): status=0 means HUEHACK enabled, status=1 means disabled
    - **Sensor 172** (`indexTimer`): a CLIP generic status sensor that auto-triggers every ~10 seconds via a self-referencing rule
-   - **Per room** `HUEHACK-OVR-{g:02d}` (CLIPGenericStatus, uniqueid `huehack-ovr-{g:02d}`): status 0 = circadian running, 1 = paused (manual colour). Id cached in UserDefaults `huehack-ovr-<g>`.
+   - **Per room** `HUEHACK-OVR-{g:02d}` (CLIPGenericStatus, uniqueid `huehack-ovr-{g:02d}`): status 0 = circadian running, 1 = paused (manual colour), 2 = reprise en attente (luminosité remise à 100 % au prochain allumage). Id cached in UserDefaults `huehack-ovr-<g>`.
 2. For each time segment, a rule is created with 4 conditions:
    - Timer sensor `lastupdated` within 5 seconds (`ddx PT00:00:05`)
    - Local time `in` the segment's time range
@@ -86,8 +86,13 @@ All API files reference these globals — no changes needed in API layer when co
    - Room pause sensor `HUEHACK-OVR-{g}` `eq 0` (omitted — 3 conditions — if the sensor could not be obtained)
 3. Rule action: PUT `/groups/{id}/action` with `{"ct": <mireds>, "transitiontime": <fade>}` — fade in deciseconds, per room (`roomFade`, UserDefaults `huehack-fade-<g>`, default 4 = 0.4 s, the bridge default), stored in the segment meta at push (`lastPushedFade`). Read-back only decodes `ct` (extra keys ignored). The rule re-fires every ~10 s: a fade > 10 s is restarted from the current colour on each tick (ease-out, longer than nominal)
 4. Rules are named `HUEHACK-{groupIndex:02d}-{ruleIndex:02d}` for identification
-5. Per room, an auto-resume rule `HUEHACK-OVRRESET-{g:02d}`: conditions `/groups/{g}/state/any_on dx` + `eq false` + OVR `eq 1` → PUT `/sensors/{ovr}/state` `{"status":0}` (switching the room off ends the pause). `parseHUEHACKRuleName` does not match it, so per-group deletes never remove it.
-6. No cloud, no Home Assistant — runs entirely on-bridge
+5. Per room, two auto-resume rules (switching the room off ends the pause):
+   - `HUEHACK-OVRRESET-{g:02d}`: `/groups/{g}/state/any_on dx` + `eq false` + OVR `eq 1` → OVR `{"status":2}`
+   - `HUEHACK-OVRRESTORE-{g:02d}`: `any_on dx` + `eq true` + OVR `eq 2` → PUT `/groups/{g}/action` `{"bri":254}` + OVR `{"status":0}` (les règles n'envoient que ct : sans ça la luminosité manuelle resterait ; le ct suit au tick suivant, ≤ 10 s)
+   `parseHUEHACKRuleName` does not match them, so per-group deletes never remove them. `ensureOverrideResetRule` (re)crée les deux, et remplace les anciennes versions (reset vers status 0).
+6. **Rule action `body` must be compact JSON**: the bridge measures it as raw text (spaces included) and rejects it with type 7 « too big for parameter, body ».
+7. **Timer loop**: `HUEHACK-HEARTBEAT` only re-fires on its own writes to the TIMER sensor — after an install or a bridge reboot it is idle until something writes it. `ensureTimerRunning()` (Sensors.swift) recreates the rule if missing and writes the TIMER once if `lastupdated` is > 60 s old (never while it runs, to avoid a second loop); called at install, on `__rooms` load and after each rule push.
+8. No cloud, no Home Assistant — runs entirely on-bridge
 
 ## Color Temperature System
 - Bridge uses **Mireds** (153–500), not Kelvin
@@ -221,12 +226,12 @@ UI (`2_rules.swift`) :
 ## Pause circadienne par pièce (API/RoomOverride.swift, New Views/7_manual_color.swift)
 - Bouton `paintpalette` dans la barre de `2_rules.swift` → `ManualColorSheet` (ColorPicker sans opacité + luminosité, envoi `{"on":true,"hue","sat","bri"}`). Couleur seulement, pas de mode blanc manuel.
 - `applyManualColor` : `prepareRoomOverride` (capteur OVR + règle reset + condition OVR sur les règles de la pièce) → OVR = 1 → **puis** PUT `/groups/{g}/action` (l'ordre inverse laisserait un tick écraser la couleur).
-- Bandeau « Circadien en pause — couleur manuelle » + « Reprendre » → `resumeCircadian` : OVR = 0, puis si l'interrupteur global est actif, envoi immédiat du ct du segment courant (base + offset des règles poussées, `clampMireds`).
+- Bandeau « Circadien en pause — couleur manuelle » + « Reprendre » → `resumeCircadian` : pièce allumée → OVR = 0, puis si l'interrupteur global est actif, envoi immédiat de `bri` 254 + ct du segment courant (base + offset des règles poussées, `clampMireds`) ; pièce éteinte → OVR = 2 (la règle OVRRESTORE remet la luminosité au prochain allumage).
 - `ensureOverrideSensor` : GET /sensors brut (JSONSerialization), recherche par nom exact (id le plus bas si doublons), jamais de création après une lecture échouée, jamais de remise à zéro du statut, appels concurrents fusionnés par pièce.
 - Pousser un planning (Update, pièces liées) **ne change jamais** l'état de pause ; la pause reste par pièce même pour des pièces liées.
 - Migration silencieuse une fois par session (`migrateLegacyRulesToOverride`, lancée par `__rooms` après chargement des groupes, hors demoMode) : `PUT /rules/{id}` avec les conditions existantes + la condition OVR (ids, noms, actions et meta conservés), pièce par pièce, séquentiellement.
 - `4_rooms.swift` : un GET /sensors à l'apparition → badge `pause.circle.fill` ; carte remplie avec la couleur hue/sat si `colormode == "hs"`.
-- Suppression d'une pièce (`5_rooms_edit.swift`) : règles segments + `HUEHACK-OVRRESET-NN` + capteur `HUEHACK-OVR-NN` + clé `huehack-ovr-<g>`, puis le groupe. Le nettoyage « Supprimer les règles HUEHACK » (préfixe `HUEHACK`) et `clearLocalHUEHACKState` (préfixe `huehack-`) les couvrent déjà.
+- Suppression d'une pièce (`5_rooms_edit.swift`) : règles segments + `HUEHACK-OVRRESET-NN` + `HUEHACK-OVRRESTORE-NN` + capteur `HUEHACK-OVR-NN` + clé `huehack-ovr-<g>`, puis le groupe. Le nettoyage « Supprimer les règles HUEHACK » (préfixe `HUEHACK`) et `clearLocalHUEHACKState` (préfixe `huehack-`) les couvrent déjà.
 - demoMode : `demoPausedRooms` (DemoData.swift), aucun appel réseau.
 
 ## Build Info

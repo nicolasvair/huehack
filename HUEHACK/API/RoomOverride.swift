@@ -5,11 +5,15 @@
 //  Per-room circadian pause ("manual colour override").
 //
 //  Each room gets a virtual sensor `HUEHACK-OVR-<g>` (CLIPGenericStatus):
-//    status 0 = circadian running, 1 = paused (manual colour).
+//    status 0 = circadian running, 1 = paused (manual colour),
+//    2 = resume pending: the pause ended while the room was off, its manual
+//        brightness is restored to 100 % at the next switch-on.
 //  Every segment rule of the room carries a 4th condition
 //  `/sensors/<ovr>/state/status eq 0`, so setting the sensor to 1 pauses only
-//  that room. A rule `HUEHACK-OVRRESET-<g>` puts it back to 0 when the room is
-//  switched off (any_on goes false), so the next switch-on is circadian again.
+//  that room. A rule `HUEHACK-OVRRESET-<g>` sets it to 2 when the room is
+//  switched off (any_on goes false); `HUEHACK-OVRRESTORE-<g>` then puts the
+//  brightness back to 100 % and the sensor to 0 at the next switch-on, so the
+//  room is circadian again (the rules only send ct, never bri).
 //
 //  Pushing a schedule never touches the sensor's status: a paused room stays
 //  paused after an Update (or a push coming from a linked room).
@@ -26,6 +30,18 @@ func overrideSensorName(_ groupIndex: Int) -> String {
 func overrideResetRuleName(_ groupIndex: Int) -> String {
     "HUEHACK-OVRRESET-\(String(format: "%02d", groupIndex))"
 }
+
+func overrideRestoreRuleName(_ groupIndex: Int) -> String {
+    "HUEHACK-OVRRESTORE-\(String(format: "%02d", groupIndex))"
+}
+
+/// OVR sensor status values.
+let overrideStatusRunning = 0
+let overrideStatusPaused = 1
+let overrideStatusRestorePending = 2
+
+/// Brightness the circadian gives back after a manual colour (Hue max).
+let circadianBrightness = 254
 
 private func overrideIndexKey(_ groupIndex: Int) -> String { "huehack-ovr-\(groupIndex)" }
 
@@ -195,17 +211,46 @@ func ensureOverrideSensor(groupIndex: Int, completion: @escaping (Int?) -> Void)
     }
 }
 
-// MARK: - Auto-resume rule
+// MARK: - Auto-resume rules
 
 /// Main-thread only: completions waiting for a reset-rule ensure already in flight.
 private var pendingResetRuleRequests = [Int: [(Bool) -> Void]]()
 
+private func ruleActions(_ rule: [String: Any]) -> [[String: Any]] {
+    rule["actions"] as? [[String: Any]] ?? []
+}
+
+private func actionStatus(_ action: [String: Any]) -> Int? {
+    (action["body"] as? [String: Any])?["status"] as? Int
+}
+
+private func ruleWatchesRoom(_ rule: [String: Any], groupIndex: Int) -> Bool {
+    ruleConditions(rule).contains { $0["address"] as? String == "/groups/\(groupIndex)/state/any_on" }
+}
+
+/// Switch-off while paused → status 2 (resume pending).
 private func resetRuleIsValid(_ rule: [String: Any], groupIndex: Int, overrideIndex: Int) -> Bool {
-    let actions = rule["actions"] as? [[String: Any]] ?? []
-    let targetsSensor = actions.contains { $0["address"] as? String == "/sensors/\(overrideIndex)/state" }
-    let conditions = ruleConditions(rule)
-    let watchesRoom = conditions.contains { $0["address"] as? String == "/groups/\(groupIndex)/state/any_on" }
-    return targetsSensor && watchesRoom && ruleHasOverrideCondition(rule, overrideIndex: overrideIndex)
+    let setsPending = ruleActions(rule).contains {
+        $0["address"] as? String == "/sensors/\(overrideIndex)/state"
+            && actionStatus($0) == overrideStatusRestorePending
+    }
+    return setsPending && ruleWatchesRoom(rule, groupIndex: groupIndex)
+        && ruleHasOverrideCondition(rule, overrideIndex: overrideIndex)
+}
+
+/// Switch-on while resume pending → full brightness, then status 0.
+private func restoreRuleIsValid(_ rule: [String: Any], groupIndex: Int, overrideIndex: Int) -> Bool {
+    let actions = ruleActions(rule)
+    let restoresBri = actions.contains {
+        $0["address"] as? String == "/groups/\(groupIndex)/action"
+            && ($0["body"] as? [String: Any])?["bri"] as? Int == circadianBrightness
+    }
+    let resumes = actions.contains {
+        $0["address"] as? String == "/sensors/\(overrideIndex)/state"
+            && actionStatus($0) == overrideStatusRunning
+    }
+    return restoresBri && resumes && ruleWatchesRoom(rule, groupIndex: groupIndex)
+        && ruleHasOverrideCondition(rule, overrideIndex: overrideIndex)
 }
 
 private func postResetRule(groupIndex: Int, overrideIndex: Int, completion: @escaping (Bool) -> Void) {
@@ -213,12 +258,12 @@ private func postResetRule(groupIndex: Int, overrideIndex: Int, completion: @esc
     let conditions: [[String: String]] = [
         ["address": anyOn, "operator": "dx"],
         ["address": anyOn, "operator": "eq", "value": "false"],
-        ["address": overrideConditionAddress(overrideIndex), "operator": "eq", "value": "1"],
+        ["address": overrideConditionAddress(overrideIndex), "operator": "eq", "value": String(overrideStatusPaused)],
     ]
     let action: [String: Any] = [
         "address": "/sensors/\(overrideIndex)/state",
         "method": "PUT",
-        "body": ["status": 0],
+        "body": ["status": overrideStatusRestorePending],
     ]
     let body: [String: Any] = [
         "name": overrideResetRuleName(groupIndex),
@@ -228,9 +273,48 @@ private func postResetRule(groupIndex: Int, overrideIndex: Int, completion: @esc
     hueRequest(.POST, "rules", body: body) { completion(hueSucceeded($0)) }
 }
 
-/// Makes sure exactly one valid `HUEHACK-OVRRESET-<g>` rule exists: it puts the
-/// OVR sensor back to 0 when the room is switched off. Anything else under that
-/// name (duplicates, wrong sensor) is deleted and replaced. Completes on main.
+private func postRestoreRule(groupIndex: Int, overrideIndex: Int, completion: @escaping (Bool) -> Void) {
+    let anyOn = "/groups/\(groupIndex)/state/any_on"
+    let conditions: [[String: String]] = [
+        ["address": anyOn, "operator": "dx"],
+        ["address": anyOn, "operator": "eq", "value": "true"],
+        ["address": overrideConditionAddress(overrideIndex), "operator": "eq", "value": String(overrideStatusRestorePending)],
+    ]
+    // Brightness first; the next 10 s tick then applies the segment's ct.
+    let actions: [[String: Any]] = [
+        ["address": "/groups/\(groupIndex)/action", "method": "PUT", "body": ["bri": circadianBrightness]],
+        ["address": "/sensors/\(overrideIndex)/state", "method": "PUT", "body": ["status": overrideStatusRunning]],
+    ]
+    let body: [String: Any] = [
+        "name": overrideRestoreRuleName(groupIndex),
+        "conditions": conditions,
+        "actions": actions,
+    ]
+    hueRequest(.POST, "rules", body: body) { completion(hueSucceeded($0)) }
+}
+
+/// Makes sure exactly one valid rule named `name` exists; anything else under
+/// that name (duplicates, wrong sensor, older version) is deleted and replaced.
+private func ensureNamedRule(_ name: String, in rules: [String: [String: Any]],
+                             isValid: ([String: Any]) -> Bool,
+                             post: @escaping (@escaping (Bool) -> Void) -> Void,
+                             completion: @escaping (Bool) -> Void) {
+    let matches = rules.filter { resourceName($0.value) == name }
+    if matches.count == 1, let rule = matches.first?.value, isValid(rule) {
+        completion(true)
+        return
+    }
+    deleteSequentially(.rules, ids: matches.keys.compactMap { Int($0) }.sorted()) { deleted in
+        // Posting on top of a rule that could not be deleted would leave duplicates.
+        guard deleted else { completion(false); return }
+        post(completion)
+    }
+}
+
+/// Makes sure the room's two auto-resume rules exist and are current:
+/// `HUEHACK-OVRRESET-<g>` (switch-off while paused → resume pending) and
+/// `HUEHACK-OVRRESTORE-<g>` (switch-on while pending → 100 % brightness, circadian).
+/// Completes on main.
 func ensureOverrideResetRule(groupIndex: Int, overrideIndex: Int, completion: @escaping (Bool) -> Void) {
     onMain {
         if demoMode { completion(true); return }
@@ -247,17 +331,14 @@ func ensureOverrideResetRule(groupIndex: Int, overrideIndex: Int, completion: @e
 
         fetchRawRules { rules in
             guard let rules = rules else { finish(false); return }
-            let expected = overrideResetRuleName(groupIndex)
-            let matches = rules.filter { resourceName($0.value) == expected }
-            if matches.count == 1, let rule = matches.first?.value,
-               resetRuleIsValid(rule, groupIndex: groupIndex, overrideIndex: overrideIndex) {
-                finish(true)
-                return
-            }
-            deleteSequentially(.rules, ids: matches.keys.compactMap { Int($0) }.sorted()) { deleted in
-                // Posting on top of a rule that could not be deleted would leave duplicates.
-                guard deleted else { finish(false); return }
-                postResetRule(groupIndex: groupIndex, overrideIndex: overrideIndex) { finish($0) }
+            ensureNamedRule(overrideResetRuleName(groupIndex), in: rules,
+                            isValid: { resetRuleIsValid($0, groupIndex: groupIndex, overrideIndex: overrideIndex) },
+                            post: { postResetRule(groupIndex: groupIndex, overrideIndex: overrideIndex, completion: $0) }) { resetOK in
+                ensureNamedRule(overrideRestoreRuleName(groupIndex), in: rules,
+                                isValid: { restoreRuleIsValid($0, groupIndex: groupIndex, overrideIndex: overrideIndex) },
+                                post: { postRestoreRule(groupIndex: groupIndex, overrideIndex: overrideIndex, completion: $0) }) { restoreOK in
+                    finish(resetOK && restoreOK)
+                }
             }
         }
     }
@@ -378,7 +459,8 @@ func migrateLegacyRulesToOverride(existingGroups: [String], completion: @escapin
                 }
                 var remaining = segmentRulesByGroup.filter { group, groupRules in
                     guard let ovr = overrideSensorIds(in: sensors, groupIndex: group).first else { return true }
-                    if !ruleNames.contains(overrideResetRuleName(group)) { return true }
+                    if !ruleNames.contains(overrideResetRuleName(group))
+                        || !ruleNames.contains(overrideRestoreRuleName(group)) { return true }
                     return groupRules.contains { !ruleHasOverrideCondition($0, overrideIndex: ovr) }
                 }.keys.sorted()
                 var migrated = 0
@@ -417,7 +499,7 @@ func fetchOverrideStates(completion: @escaping ([String: Bool]?) -> Void) {
         }
         var states = [String: Bool]()
         for (group, entry) in lowest {
-            states[String(group)] = sensorStatus(entry.sensor) == 1
+            states[String(group)] = sensorStatus(entry.sensor) == overrideStatusPaused
         }
         completion(states)
     }
@@ -433,8 +515,8 @@ func fetchRoomOverrideState(groupIndex: Int, completion: @escaping (Bool?) -> Vo
 
 // MARK: - Manual colour / resume
 
-private func putOverrideStatus(_ overrideIndex: Int, paused: Bool, completion: @escaping (Bool) -> Void) {
-    hueRequest(.PUT, "sensors/\(overrideIndex)/state", body: ["status": paused ? 1 : 0]) {
+private func putOverrideStatus(_ overrideIndex: Int, status: Int, completion: @escaping (Bool) -> Void) {
+    hueRequest(.PUT, "sensors/\(overrideIndex)/state", body: ["status": status]) {
         completion(hueSucceeded($0))
     }
 }
@@ -452,7 +534,7 @@ func applyManualColor(groupIndex: Int, hue: Int, sat: Int, bri: Int, completion:
             completion(false, "Impossible de préparer la pause de cette pièce sur le bridge. La couleur n'a pas été envoyée.")
             return
         }
-        putOverrideStatus(overrideIndex, paused: true) { paused in
+        putOverrideStatus(overrideIndex, status: overrideStatusPaused) { paused in
             guard paused else {
                 completion(false, "Impossible de mettre le circadien en pause. La couleur n'a pas été envoyée.")
                 return
@@ -474,36 +556,47 @@ func applyManualColor(groupIndex: Int, hue: Int, sat: Int, bri: Int, completion:
     }
 }
 
-/// Resumes the room's circadian (OVR sensor back to 0). If the global switch is on
-/// and `ct` is given (current segment, offset applied), sends it right away instead
-/// of waiting for the next tick, with `fade` (deciseconds) as its transitiontime when
-/// given — the same as the room's rules. Completes on main with (success, message).
+/// Resumes the room's circadian and gives back full brightness (the manual colour
+/// may have dimmed it; the rules only send ct).
+/// - Room on: OVR → 0, then if the global switch is on, sends `ct` (current
+///   segment, offset applied) with full brightness right away, with `fade`
+///   (deciseconds) as its transitiontime when given — the same as the room's rules.
+/// - Room off: OVR → 2, the restore rule applies the brightness at the next
+///   switch-on (an off light cannot take a brightness).
+/// Completes on main with (success, message).
 func resumeCircadian(groupIndex: Int, ct: Int?, fade: Int? = nil, completion: @escaping (Bool, String) -> Void) {
     if demoMode {
         demoPausedRooms.remove(String(groupIndex))
         completion(true, "")
         return
     }
-    ensureOverrideSensor(groupIndex: groupIndex) { overrideIndex in
+    prepareRoomOverride(groupIndex: groupIndex) { overrideIndex in
         guard let overrideIndex = overrideIndex else {
             completion(false, "Impossible de joindre le capteur de pause de cette pièce.")
             return
         }
-        putOverrideStatus(overrideIndex, paused: false) { resumed in
-            guard resumed else {
-                completion(false, "Impossible de reprendre le circadien.")
-                return
-            }
-            guard let ct = ct else { completion(true, ""); return }
-            hueRequest(.GET, "sensors/\(indexGlobalOnOff)") { json in
-                let status = ((json as? [String: Any])?["state"] as? [String: Any])?["status"] as? Int
-                // Global switch off (or unknown): leave the lights as they are.
-                guard status == 0 else { completion(true, ""); return }
-                var body: [String: Any] = ["ct": clampMireds(ct)]
-                if let fade = fade { body["transitiontime"] = min(65535, max(0, fade)) }
-                hueRequest(.PUT, "groups/\(groupIndex)/action", body: body) { _ in
-                    // Best effort: the next tick applies it anyway.
-                    completion(true, "")
+        hueRequest(.GET, "groups/\(groupIndex)") { groupJSON in
+            let anyOn = ((groupJSON as? [String: Any])?["state"] as? [String: Any])?["any_on"] as? Bool
+            // Unknown → treated as on: the brightness is then sent now (best effort).
+            let roomOff = anyOn == false
+            let status = roomOff ? overrideStatusRestorePending : overrideStatusRunning
+            putOverrideStatus(overrideIndex, status: status) { resumed in
+                guard resumed else {
+                    completion(false, "Impossible de reprendre le circadien.")
+                    return
+                }
+                guard !roomOff else { completion(true, ""); return }
+                hueRequest(.GET, "sensors/\(indexGlobalOnOff)") { json in
+                    let status = ((json as? [String: Any])?["state"] as? [String: Any])?["status"] as? Int
+                    // Global switch off (or unknown): leave the lights as they are.
+                    guard status == 0 else { completion(true, ""); return }
+                    var body: [String: Any] = ["bri": circadianBrightness]
+                    if let ct = ct { body["ct"] = clampMireds(ct) }
+                    if let fade = fade { body["transitiontime"] = min(65535, max(0, fade)) }
+                    hueRequest(.PUT, "groups/\(groupIndex)/action", body: body) { _ in
+                        // Best effort: the next tick applies the ct anyway.
+                        completion(true, "")
+                    }
                 }
             }
         }
@@ -512,7 +605,7 @@ func resumeCircadian(groupIndex: Int, ct: Int?, fade: Int? = nil, completion: @e
 
 // MARK: - Room deletion
 
-/// Removes the room's reset rule(s), OVR sensor(s) and stored index. The segment
+/// Removes the room's reset / restore rules, OVR sensor(s) and stored index. The segment
 /// rules are removed separately (`deleteAllHUEHACKRulesForGroup`). Completes on
 /// main with false if anything could not be read or deleted.
 func deleteRoomOverride(groupIndex: Int, completion: @escaping (Bool) -> Void) {
@@ -522,8 +615,8 @@ func deleteRoomOverride(groupIndex: Int, completion: @escaping (Bool) -> Void) {
         return
     }
     fetchRawRules { rules in
-        let resetName = overrideResetRuleName(groupIndex)
-        let ruleIds = (rules ?? [:]).filter { resourceName($0.value) == resetName }.compactMap { Int($0.key) }
+        let names: Set<String> = [overrideResetRuleName(groupIndex), overrideRestoreRuleName(groupIndex)]
+        let ruleIds = (rules ?? [:]).filter { names.contains(resourceName($0.value)) }.compactMap { Int($0.key) }
         // Rules first: they reference the sensor.
         deleteSequentially(.rules, ids: ruleIds) { rulesDeleted in
             fetchRawSensors { sensors in

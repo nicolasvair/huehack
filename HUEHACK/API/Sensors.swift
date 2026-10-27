@@ -267,16 +267,76 @@ func installHUEHACKSensors(completion: @escaping (Bool, String) -> Void) {
             }
             AppConfig.shared.indexTimer = ti
             AppConfig.shared.indexGlobalOnOff = goi
-            if alreadyInstalled {
-                completion(true, "HUEHACK déjà installé — indices mis à jour ✓")
-                return
-            }
-            createTimerHeartbeatRule(indexTimer: ti) { ok in
-                DispatchQueue.main.async {
-                    completion(ok, ok ? "HUEHACK installé ✓" : "Capteurs créés mais règle heartbeat échouée")
+            // Creates the heartbeat rule if missing and starts the loop.
+            ensureTimerRunning { ok in
+                if !ok {
+                    completion(false, "Capteurs prêts mais minuteur 10 s non démarré")
+                } else {
+                    completion(true, alreadyInstalled ? "HUEHACK déjà installé — indices mis à jour ✓" : "HUEHACK installé ✓")
                 }
             }
         }
     }
 }
 
+
+// MARK: - Timer loop
+
+private let heartbeatRuleName = "HUEHACK-HEARTBEAT"
+
+/// Bridge `lastupdated` ("2026-10-27T10:53:26", UTC, or "none") → Date.
+private func bridgeUTCDate(_ value: String?) -> Date? {
+    guard let value = value else { return nil }
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = TimeZone(identifier: "UTC")
+    formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+    return formatter.date(from: value)
+}
+
+/// The 10 s tick only runs once something writes the TIMER sensor: the heartbeat
+/// rule re-fires on its own writes, but a freshly created rule (or a bridge
+/// reboot) leaves it idle and no segment rule ever fires. Makes sure the
+/// heartbeat rule exists, then writes the timer once if it has not ticked for a
+/// minute (never while it runs: each extra write could start a second loop).
+/// Completes on main with false if the loop could not be checked or started.
+func ensureTimerRunning(completion: @escaping (Bool) -> Void = { _ in }) {
+    func finish(_ ok: Bool) { DispatchQueue.main.async { completion(ok) } }
+    if demoMode { finish(true); return }
+    let timer = indexTimer
+
+    fetchRawRules { rules in
+        guard let rules = rules else { finish(false); return }
+        let address = "/sensors/\(timer)/state/status"
+        let hasHeartbeat = rules.values.contains { rule in
+            guard rule["name"] as? String == heartbeatRuleName else { return false }
+            let conditions = rule["conditions"] as? [[String: Any]] ?? []
+            return conditions.contains { $0["address"] as? String == address }
+        }
+
+        func kickIfIdle() {
+            fetchRawSensors { sensors in
+                guard let sensor = sensors?[String(timer)] else { finish(false); return }
+                let last = bridgeUTCDate((sensor["state"] as? [String: Any])?["lastupdated"] as? String)
+                if let last = last, Date().timeIntervalSince(last) < 60 {
+                    finish(true)
+                    return
+                }
+                print("HUEHACK: timer idle — starting the 10 s loop")
+                sendPUTSensors(ip: ip, indexSensor: timer, state: 0) { response in
+                    finish(response.contains("\"success\""))
+                }
+            }
+        }
+
+        if hasHeartbeat {
+            kickIfIdle()
+        } else {
+            print("HUEHACK: heartbeat rule missing — recreating it")
+            createTimerHeartbeatRule(indexTimer: timer) { ok in
+                guard ok else { finish(false); return }
+                kickIfIdle()
+            }
+        }
+    }
+}

@@ -210,6 +210,8 @@ func createRulesFromlistOfSegments(listOfSegments: [Segment], indexGroup: Int, o
             func finish() {
                 DispatchQueue.main.async {
                     saveSegmentMeta(segments: listOfSegments, groupIndex: indexGroup, offset: offset, fade: fade)
+                    // The rules only fire on the 10 s tick: make sure it runs.
+                    ensureTimerRunning()
                     if failedRules.isEmpty {
                         completion(rulesSentSuccessMessage)
                     } else {

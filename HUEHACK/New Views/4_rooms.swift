@@ -77,6 +77,8 @@ struct __rooms: View {
             groupsIndices = sortedIndices(response.map { $0.key })
             migrateAndPruneRoomLinks(existingIndices: groupsIndices)
             refreshLinkCounts()
+            // The 10 s loop stops after a bridge reboot: restart it if idle.
+            ensureTimerRunning()
             // Once per session: adds the pause condition to rules pushed by older builds.
             migrateLegacyRulesToOverride(existingGroups: groupsIndices) { migrated in
                 if migrated > 0 { refreshPauseStates() }

@@ -79,7 +79,7 @@ private func onMain(_ work: @escaping () -> Void) {
 }
 
 /// Completes on main with the parsed JSON response, or nil on any failure.
-private func hueRequest(_ method: TypeRequest, _ path: String, body: Any? = nil,
+func hueRequest(_ method: TypeRequest, _ path: String, body: Any? = nil,
                         completion: @escaping (Any?) -> Void) {
     func finish(_ result: Any?) { DispatchQueue.main.async { completion(result) } }
 
@@ -106,7 +106,7 @@ private func hueRequest(_ method: TypeRequest, _ path: String, body: Any? = nil,
 }
 
 /// True when the bridge answered only `success` entries.
-private func hueSucceeded(_ json: Any?) -> Bool {
+func hueSucceeded(_ json: Any?) -> Bool {
     guard let items = json as? [[String: Any]], !items.isEmpty else { return false }
     return items.allSatisfy { $0["success"] != nil }
 }
@@ -123,7 +123,7 @@ func fetchRawRules(completion: @escaping ([String: [String: Any]]?) -> Void) {
 
 /// Deletes the resources one after the other (the bridge throttles bursts).
 /// Completes on main with false if any delete failed.
-private func deleteSequentially(_ what: TypeWhat, ids: [Int], completion: @escaping (Bool) -> Void) {
+func deleteSequentially(_ what: TypeWhat, ids: [Int], completion: @escaping (Bool) -> Void) {
     var remaining = ids
     var allDeleted = true
 
@@ -142,7 +142,7 @@ private func deleteSequentially(_ what: TypeWhat, ids: [Int], completion: @escap
     deleteNext()
 }
 
-private func resourceName(_ resource: [String: Any]) -> String {
+func resourceName(_ resource: [String: Any]) -> String {
     resource["name"] as? String ?? ""
 }
 

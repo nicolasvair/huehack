@@ -217,23 +217,6 @@ func createVirtualSensor(name: String, uniqueid: String, completion: @escaping (
     }.resume()
 }
 
-private func createTimerHeartbeatRule(indexTimer: Int, completion: @escaping (Bool) -> Void) {
-    guard let url = URL(string: "http://\(ip)/api/\(username)/rules") else { completion(false); return }
-    var request = URLRequest(url: url)
-    request.httpMethod = "POST"
-    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    let body = """
-    {"name":"HUEHACK-HEARTBEAT","conditions":[{"address":"/sensors/\(indexTimer)/state/status","operator":"gt","value":"-1"}],"actions":[{"address":"/sensors/\(indexTimer)/state","method":"PUT","body":{"status":1}}]}
-    """
-    request.httpBody = body.data(using: .utf8)
-    URLSession.shared.dataTask(with: request) { data, _, _ in
-        guard let data = data,
-              let json = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
-              json.first?["success"] != nil else { DispatchQueue.main.async { completion(false) }; return }
-        DispatchQueue.main.async { completion(true) }
-    }.resume()
-}
-
 func installHUEHACKSensors(completion: @escaping (Bool, String) -> Void) {
     sendGETSensors(ip: ip, which: nil) { sensors in
         var timerIdx: Int? = nil
@@ -267,7 +250,7 @@ func installHUEHACKSensors(completion: @escaping (Bool, String) -> Void) {
             }
             AppConfig.shared.indexTimer = ti
             AppConfig.shared.indexGlobalOnOff = goi
-            // Creates the heartbeat rule if missing and starts the loop.
+            // Creates the 10 s schedule if missing.
             ensureTimerRunning { ok in
                 if !ok {
                     completion(false, "Capteurs prêts mais minuteur 10 s non démarré")
@@ -282,60 +265,66 @@ func installHUEHACKSensors(completion: @escaping (Bool, String) -> Void) {
 
 // MARK: - Timer loop
 
-private let heartbeatRuleName = "HUEHACK-HEARTBEAT"
+private let timerScheduleName = "HUEHACK-TIMER"
+/// Recurring forever, every 10 s.
+private let timerScheduleTime = "R/PT00:00:10"
+/// Rule created by earlier builds: it never fired (a rule does not re-trigger
+/// on its own writes), so it is removed.
+private let legacyHeartbeatRuleName = "HUEHACK-HEARTBEAT"
 
-/// Bridge `lastupdated` ("2026-10-27T10:53:26", UTC, or "none") → Date.
-private func bridgeUTCDate(_ value: String?) -> Date? {
-    guard let value = value else { return nil }
-    let formatter = DateFormatter()
-    formatter.locale = Locale(identifier: "en_US_POSIX")
-    formatter.timeZone = TimeZone(identifier: "UTC")
-    formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
-    return formatter.date(from: value)
-}
-
-/// The 10 s tick only runs once something writes the TIMER sensor: the heartbeat
-/// rule re-fires on its own writes, but a freshly created rule (or a bridge
-/// reboot) leaves it idle and no segment rule ever fires. Makes sure the
-/// heartbeat rule exists, then writes the timer once if it has not ticked for a
-/// minute (never while it runs: each extra write could start a second loop).
-/// Completes on main with false if the loop could not be checked or started.
+/// The 10 s tick is a bridge schedule `HUEHACK-TIMER` (`R/PT00:00:10`) that
+/// writes `{"status":0}` to the TIMER sensor; each write updates its
+/// `lastupdated`, which the segment rules watch (`ddx PT00:00:05`).
+/// Makes sure exactly one such schedule targets the current TIMER sensor
+/// (anything else under that name is replaced) and removes the legacy heartbeat
+/// rule. Completes on main with false if the schedule could not be checked or
+/// created.
 func ensureTimerRunning(completion: @escaping (Bool) -> Void = { _ in }) {
     func finish(_ ok: Bool) { DispatchQueue.main.async { completion(ok) } }
     if demoMode { finish(true); return }
-    let timer = indexTimer
+    let address = "/api/\(username)/sensors/\(indexTimer)/state"
 
-    fetchRawRules { rules in
-        guard let rules = rules else { finish(false); return }
-        let address = "/sensors/\(timer)/state/status"
-        let hasHeartbeat = rules.values.contains { rule in
-            guard rule["name"] as? String == heartbeatRuleName else { return false }
-            let conditions = rule["conditions"] as? [[String: Any]] ?? []
-            return conditions.contains { $0["address"] as? String == address }
+    func isValid(_ schedule: [String: Any]) -> Bool {
+        let command = schedule["command"] as? [String: Any] ?? [:]
+        let status = (command["body"] as? [String: Any])?["status"] as? Int
+        return schedule["localtime"] as? String == timerScheduleTime
+            && schedule["status"] as? String == "enabled"
+            && command["address"] as? String == address
+            && command["method"] as? String == "PUT"
+            && status == 0
+    }
+
+    func removeLegacyHeartbeat(then ok: Bool) {
+        fetchRawRules { rules in
+            let ids = (rules ?? [:]).filter { resourceName($0.value) == legacyHeartbeatRuleName }
+                .compactMap { Int($0.key) }.sorted()
+            deleteSequentially(.rules, ids: ids) { _ in finish(ok) }
         }
+    }
 
-        func kickIfIdle() {
-            fetchRawSensors { sensors in
-                guard let sensor = sensors?[String(timer)] else { finish(false); return }
-                let last = bridgeUTCDate((sensor["state"] as? [String: Any])?["lastupdated"] as? String)
-                if let last = last, Date().timeIntervalSince(last) < 60 {
-                    finish(true)
-                    return
-                }
-                print("HUEHACK: timer idle — starting the 10 s loop")
-                sendPUTSensors(ip: ip, indexSensor: timer, state: 0) { response in
-                    finish(response.contains("\"success\""))
-                }
-            }
+    hueRequest(.GET, "schedules") { json in
+        guard let schedules = json as? [String: [String: Any]] else { finish(false); return }
+        let matches = schedules.filter { resourceName($0.value) == timerScheduleName }
+        if matches.count == 1, let schedule = matches.first?.value, isValid(schedule) {
+            removeLegacyHeartbeat(then: true)
+            return
         }
-
-        if hasHeartbeat {
-            kickIfIdle()
-        } else {
-            print("HUEHACK: heartbeat rule missing — recreating it")
-            createTimerHeartbeatRule(indexTimer: timer) { ok in
-                guard ok else { finish(false); return }
-                kickIfIdle()
+        print("HUEHACK: timer schedule missing or outdated — recreating it")
+        deleteSequentially(.schedules, ids: matches.keys.compactMap { Int($0) }.sorted()) { deleted in
+            // Posting on top of a schedule that could not be deleted would double the tick.
+            guard deleted else { finish(false); return }
+            let body: [String: Any] = [
+                "name": timerScheduleName,
+                "description": "HUEHACK 10 s tick",
+                "command": ["address": address, "method": "PUT", "body": ["status": 0]],
+                "localtime": timerScheduleTime,
+                "status": "enabled",
+                // No "autodelete": the bridge rejects it on a recurring timer (type 6).
+            ]
+            hueRequest(.POST, "schedules", body: body) { json in
+                let ok = hueSucceeded(json)
+                if !ok { print("HUEHACK: timer schedule rejected: \(String(describing: json))") }
+                removeLegacyHeartbeat(then: ok)
             }
         }
     }

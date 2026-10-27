@@ -77,7 +77,7 @@ All API files reference these globals — no changes needed in API layer when co
 ## The Circadian Hack — How It Works
 1. Virtual sensors are created on the bridge:
    - **Sensor 171** (`indexGlobalOnOff`): status=0 means HUEHACK enabled, status=1 means disabled
-   - **Sensor 172** (`indexTimer`): a CLIP generic status sensor that auto-triggers every ~10 seconds via a self-referencing rule
+   - **Sensor 172** (`indexTimer`): a CLIP generic status sensor written every 10 seconds by the `HUEHACK-TIMER` schedule
    - **Per room** `HUEHACK-OVR-{g:02d}` (CLIPGenericStatus, uniqueid `huehack-ovr-{g:02d}`): status 0 = circadian running, 1 = paused (manual colour), 2 = reprise en attente (luminosité remise à 100 % au prochain allumage). Id cached in UserDefaults `huehack-ovr-<g>`.
 2. For each time segment, a rule is created with 4 conditions:
    - Timer sensor `lastupdated` within 5 seconds (`ddx PT00:00:05`)
@@ -91,7 +91,7 @@ All API files reference these globals — no changes needed in API layer when co
    - `HUEHACK-OVRRESTORE-{g:02d}`: `any_on dx` + `eq true` + OVR `eq 2` → PUT `/groups/{g}/action` `{"bri":254}` + OVR `{"status":0}` (les règles n'envoient que ct : sans ça la luminosité manuelle resterait ; le ct suit au tick suivant, ≤ 10 s)
    `parseHUEHACKRuleName` does not match them, so per-group deletes never remove them. `ensureOverrideResetRule` (re)crée les deux, et remplace les anciennes versions (reset vers status 0).
 6. **Rule action `body` must be compact JSON**: the bridge measures it as raw text (spaces included) and rejects it with type 7 « too big for parameter, body ».
-7. **Timer loop**: `HUEHACK-HEARTBEAT` only re-fires on its own writes to the TIMER sensor — after an install or a bridge reboot it is idle until something writes it. `ensureTimerRunning()` (Sensors.swift) recreates the rule if missing and writes the TIMER once if `lastupdated` is > 60 s old (never while it runs, to avoid a second loop); called at install, on `__rooms` load and after each rule push.
+7. **Timer loop**: a bridge **schedule** `HUEHACK-TIMER` (`localtime: "R/PT00:00:10"`) PUTs `{"status":0}` on the TIMER sensor every 10 s — that write updates `lastupdated`, which the segment rules watch. (A self-triggering rule does NOT work: the old `HUEHACK-HEARTBEAT` rule never fired; it is now deleted.) `ensureTimerRunning()` (Sensors.swift) creates/replaces the schedule if missing or pointing at another sensor; called at install, on `__rooms` load and after each rule push. The wipe « HUEHACK seulement » also deletes `HUEHACK*` schedules.
 8. No cloud, no Home Assistant — runs entirely on-bridge
 
 ## Color Temperature System
@@ -139,7 +139,7 @@ All three do basically the same thing. Should become one canonical function.
 - Sync/unsync visual state in segment list
 - Persistent config via UserDefaults (AppConfig + global proxies)
 - Onboarding routing (RootView checks config at launch)
-- Virtual sensor installation (installHUEHACKSensors — creates TIMER + GLOBAL ONOFF + heartbeat rule)
+- Virtual sensor installation (installHUEHACKSensors — creates TIMER + GLOBAL ONOFF + 10 s schedule)
 
 ## What's Incomplete / To Build
 

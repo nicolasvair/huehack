@@ -136,6 +136,11 @@ private func resourcesToDelete(scope: WipeScope, config: [String: Any]) -> [Brid
         where isCLIP(sensor["type"] as? String ?? "") && isHUEHACK(sensor["name"] as? String ?? "") {
             targets.append(BridgeResource(what: .sensors, id: id))
         }
+        // The 10 s tick (HUEHACK-TIMER schedule) writes the TIMER sensor.
+        let schedules = config["schedules"] as? [String: [String: Any]] ?? [:]
+        for (id, schedule) in schedules where isHUEHACK(schedule["name"] as? String ?? "") {
+            targets.append(BridgeResource(what: .schedules, id: id))
+        }
 
     case .everythingButRooms:
         for id in rules.keys {

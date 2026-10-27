@@ -654,7 +654,7 @@ struct __rules: View {
                 pushedOffset = offset
                 pushedFade = fade
             }
-            pushToLinkedRooms(linked, base: updated) { pushed, failed in
+            pushToLinkedRooms(linked, base: updated) { pushed, failed, failureDetails in
                 linksChanged = false
                 var message = response
                 if pushed > 0 {
@@ -663,6 +663,7 @@ struct __rules: View {
                 if !failed.isEmpty {
                     let names = failed.map { groups[$0]?.name ?? $0 }
                     message += "\n⚠︎ échec : \(names.joined(separator: ", "))"
+                    if let detail = failureDetails.first { message += "\n\(detail)" }
                 }
                 alertMessage = message
                 showAlert = true
@@ -675,14 +676,15 @@ struct __rules: View {
 
     /// Pushes the same base schedule to every linked room, each with its own mireds
     /// offset and its fade (shared by the link group, so equal for all).
-    private func pushToLinkedRooms(_ rooms: [String], base: [Segment], completion: @escaping (Int, [String]) -> Void) {
+    private func pushToLinkedRooms(_ rooms: [String], base: [Segment], completion: @escaping (Int, [String], [String]) -> Void) {
         var remaining = rooms
         var pushed = 0
         var failed = [String]()
+        var details = [String]()
 
         func pushNext() {
             guard let idxString = remaining.first else {
-                completion(pushed, failed)
+                completion(pushed, failed, details)
                 return
             }
             remaining.removeFirst()
@@ -694,7 +696,7 @@ struct __rules: View {
             createRulesFromlistOfSegments(listOfSegments: base, indexGroup: idx,
                                           offset: roomOffset(idxString),
                                           fade: roomFade(idxString)) { response in
-                if response.contains("correctly") { pushed += 1 } else { failed.append(idxString) }
+                if response.contains("correctly") { pushed += 1 } else { failed.append(idxString); details.append(response) }
                 pushNext()
             }
         }

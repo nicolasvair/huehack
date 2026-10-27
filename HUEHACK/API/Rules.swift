@@ -205,6 +205,7 @@ func createRulesFromlistOfSegments(listOfSegments: [Segment], indexGroup: Int, o
             let indiceGlobalOnOff = indexGlobalOnOff
             let indiceTimer = indexTimer
             var failedRules = [String]()
+            var bridgeErrors = [String]()
 
             func finish() {
                 DispatchQueue.main.async {
@@ -212,7 +213,9 @@ func createRulesFromlistOfSegments(listOfSegments: [Segment], indexGroup: Int, o
                     if failedRules.isEmpty {
                         completion(rulesSentSuccessMessage)
                     } else {
-                        completion("Erreur sur les règles : \(failedRules.joined(separator: ", "))")
+                        var message = "Erreur sur les règles : \(failedRules.joined(separator: ", "))"
+                        if !bridgeErrors.isEmpty { message += "\nBridge : \(bridgeErrors.joined(separator: " / "))" }
+                        completion(message)
                     }
                 }
             }
@@ -244,6 +247,9 @@ func createRulesFromlistOfSegments(listOfSegments: [Segment], indexGroup: Int, o
                                     transitionTime: fade) { response in
                     if !response.contains("\"success\"") {
                         failedRules.append(String(format: "%02d", indice))
+                        print("HUEHACK: rule \(indice) rejected: \(response)")
+                        let detail = bridgeErrorDescription(response)
+                        if !bridgeErrors.contains(detail) { bridgeErrors.append(detail) }
                     }
                     postNext(indice + 1)
                 }
@@ -252,6 +258,19 @@ func createRulesFromlistOfSegments(listOfSegments: [Segment], indexGroup: Int, o
             postNext(0)
         }
     }
+}
+
+/// Readable summary of a bridge reply (`[{"error":{"type":…,"description":…}}]`),
+/// or the raw reply (network error text…) when it is not one.
+func bridgeErrorDescription(_ response: String) -> String {
+    guard let data = response.data(using: .utf8),
+          let items = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+        return String(response.prefix(200))
+    }
+    let errors = items.compactMap { $0["error"] as? [String: Any] }.map { error in
+        "\(error["description"] as? String ?? "?") (type \(error["type"] as? Int ?? 0))"
+    }
+    return errors.isEmpty ? String(response.prefix(200)) : errors.joined(separator: " / ")
 }
 
 /// `indexOverride`: the room's pause sensor. When given, the rule gets a 4th
@@ -297,10 +316,13 @@ func sendPOSTRuleRequest(ip: String, start: DateComponents, end: DateComponents,
         """
     }
 
-    var transitionField = ""
+    // Compact on purpose: the bridge measures the action body as raw text and
+    // rejects it ("too big for parameter, body", type 7) once indentation is added.
+    var actionBody = "{\"ct\":\(temp)"
     if let transitionTime = transitionTime {
-        transitionField = ",\n                        \"transitiontime\": \(min(65535, max(0, transitionTime)))"
+        actionBody += ",\"transitiontime\":\(min(65535, max(0, transitionTime)))"
     }
+    actionBody += "}"
 
     let body = """
     {
@@ -326,9 +348,7 @@ func sendPOSTRuleRequest(ip: String, start: DateComponents, end: DateComponents,
                 {
                     "address": "/groups/\(indexGroup)/action",
                     "method": "PUT",
-                    "body": {
-                        "ct": \(temp)\(transitionField)
-                    }
+                    "body": \(actionBody)
                 }
             ]
         }
@@ -411,21 +431,22 @@ func deleteAllHUEHACKRules(completion: @escaping () -> Void) {
 /// rules could not be read or any delete failed (posting new rules on top would
 /// leave duplicates on the bridge).
 func deleteAllHUEHACKRulesForGroup(indexGroup: Int, completion: @escaping (Bool) -> Void) {
-    getRulesAndFilterByGroup(group: indexGroup) { filteredRules in
-        guard let filteredRules = filteredRules else {
+    // Raw read: one rule the Decodable model cannot parse must not block the push.
+    fetchRawRules { rules in
+        guard let rules = rules else {
             completion(false)
             return
+        }
+        let ids = rules.compactMap { key, rule -> Int? in
+            guard parseHUEHACKRuleName(rule["name"] as? String ?? "")?.group == indexGroup else { return nil }
+            return Int(key)
         }
 
         var allDeleted = true
         let lock = NSLock()
         let group = DispatchGroup()
 
-        for key in filteredRules.keys {
-            guard let index = Int(key) else {
-                allDeleted = false
-                continue
-            }
+        for index in ids {
             group.enter()
             sendDELETERequest(ip: ip, what: TypeWhat.rules, which: index) { response in
                 if !response.contains("\"success\"") {

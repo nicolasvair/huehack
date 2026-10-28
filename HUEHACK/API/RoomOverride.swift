@@ -521,9 +521,15 @@ private func putOverrideStatus(_ overrideIndex: Int, status: Int, completion: @e
     }
 }
 
-/// Pauses the room's circadian, THEN sends the colour (the reverse order would
-/// let a 10 s tick overwrite it). Completes on main with (success, message).
-func applyManualColor(groupIndex: Int, hue: Int, sat: Int, bri: Int, completion: @escaping (Bool, String) -> Void) {
+/// A manual setting: a colour (Hue v1 hue 0…65535, sat 0…254) or a white (ct in mireds).
+enum ManualLight: Equatable {
+    case color(hue: Int, sat: Int)
+    case white(ct: Int)
+}
+
+/// Pauses the room's circadian, THEN sends the colour or white (the reverse order
+/// would let a 10 s tick overwrite it). Completes on main with (success, message).
+func applyManualColor(groupIndex: Int, light: ManualLight, bri: Int, completion: @escaping (Bool, String) -> Void) {
     if demoMode {
         demoPausedRooms.insert(String(groupIndex))
         completion(true, "Couleur appliquée")
@@ -539,12 +545,7 @@ func applyManualColor(groupIndex: Int, hue: Int, sat: Int, bri: Int, completion:
                 completion(false, "Impossible de mettre le circadien en pause. La couleur n'a pas été envoyée.")
                 return
             }
-            let body: [String: Any] = [
-                "on": true,
-                "hue": min(65535, max(0, hue)),
-                "sat": min(254, max(0, sat)),
-                "bri": min(254, max(1, bri)),
-            ]
+            let body = manualLightBody(light, bri: bri)
             hueRequest(.PUT, "groups/\(groupIndex)/action", body: body) { json in
                 if hueSucceeded(json) {
                     completion(true, "Couleur appliquée")
@@ -553,6 +554,96 @@ func applyManualColor(groupIndex: Int, hue: Int, sat: Int, bri: Int, completion:
                 }
             }
         }
+    }
+}
+
+// MARK: - Live preview (manual light sheet)
+
+/// Group action body for a manual light. With a `bri` the room is also switched
+/// on; without, only the colour changes (lights left as they are).
+private func manualLightBody(_ light: ManualLight, bri: Int?) -> [String: Any] {
+    var body = [String: Any]()
+    if let bri = bri {
+        body["on"] = true
+        body["bri"] = min(254, max(1, bri))
+    }
+    switch light {
+    case let .color(hue, sat):
+        body["hue"] = min(65535, max(0, hue))
+        body["sat"] = min(254, max(0, sat))
+    case let .white(ct):
+        body["ct"] = clampMireds(ct)
+    }
+    return body
+}
+
+/// First change in the manual light sheet: pauses the room's circadian so the
+/// 10 s tick does not overwrite the preview. Completes on main with success.
+func beginManualPreview(groupIndex: Int, completion: @escaping (Bool) -> Void) {
+    if demoMode { completion(true); return }
+    prepareRoomOverride(groupIndex: groupIndex) { overrideIndex in
+        guard let overrideIndex = overrideIndex else { completion(false); return }
+        putOverrideStatus(overrideIndex, status: overrideStatusPaused) { completion($0) }
+    }
+}
+
+/// Sends a preview value to the room (the pause must already be set). Without a
+/// `bri`, only the colour changes. With `after` (the value sent just before),
+/// only the attributes that changed are sent: the bridge broadcasts every
+/// attribute of a group command and falls behind (seconds of lag) when flooded.
+/// Completes on main with success.
+func sendManualPreview(groupIndex: Int, light: ManualLight, bri: Int?,
+                       after previous: (light: ManualLight, bri: Int?)? = nil,
+                       completion: @escaping (Bool) -> Void) {
+    if demoMode { completion(true); return }
+    var body = manualLightBody(light, bri: bri)
+    if let previous = previous {
+        let before = manualLightBody(previous.light, bri: previous.bri)
+        for (key, value) in body where before[key].map({ "\($0)" }) == "\(value)" {
+            body.removeValue(forKey: key)
+        }
+    }
+    guard !body.isEmpty else { completion(true); return }
+    hueRequest(.PUT, "groups/\(groupIndex)/action", body: body) {
+        completion(hueSucceeded($0))
+    }
+}
+
+/// End of a preview that is not kept: puts the room back as it was before — its
+/// previous colour (ct / hue-sat / xy), plus on/off and brightness when
+/// `restoreOnAndBrightness` (previews that only changed the colour leave them),
+/// and its pause state (circadian resumed if it was running). Completes on main.
+func cancelManualPreview(groupIndex: Int, previous: RoomAction?, wasPaused: Bool,
+                         restoreOnAndBrightness: Bool = true,
+                         completion: @escaping (Bool) -> Void = { _ in }) {
+    if demoMode { completion(true); return }
+
+    func restoreAction(_ ok: Bool) {
+        guard let previous = previous else { completion(ok); return }
+        var body = [String: Any]()
+        if restoreOnAndBrightness {
+            body["on"] = previous.on
+            if previous.on { body["bri"] = min(254, max(1, previous.bri)) }
+        }
+        if previous.on {
+            switch previous.colormode {
+            case "hs":
+                if let hue = previous.hue { body["hue"] = hue }
+                if let sat = previous.sat { body["sat"] = sat }
+            case "xy":
+                if let xy = previous.xy { body["xy"] = xy }
+            default:
+                if let ct = previous.ct { body["ct"] = clampMireds(ct) }
+            }
+        }
+        guard !body.isEmpty else { completion(ok); return }
+        hueRequest(.PUT, "groups/\(groupIndex)/action", body: body) { completion(ok && hueSucceeded($0)) }
+    }
+
+    guard !wasPaused else { restoreAction(true); return }
+    ensureOverrideSensor(groupIndex: groupIndex) { overrideIndex in
+        guard let overrideIndex = overrideIndex else { restoreAction(false); return }
+        putOverrideStatus(overrideIndex, status: overrideStatusRunning) { restoreAction($0) }
     }
 }
 
@@ -592,7 +683,7 @@ func resumeCircadian(groupIndex: Int, ct: Int?, fade: Int? = nil, completion: @e
                     guard status == 0 else { completion(true, ""); return }
                     var body: [String: Any] = ["bri": circadianBrightness]
                     if let ct = ct { body["ct"] = clampMireds(ct) }
-                    if let fade = fade { body["transitiontime"] = min(65535, max(0, fade)) }
+                    if let fade = fade { body["transitiontime"] = min(65535, bridgeTransitionTime(forFade: fade)) }
                     hueRequest(.PUT, "groups/\(groupIndex)/action", body: body) { _ in
                         // Best effort: the next tick applies the ct anyway.
                         completion(true, "")

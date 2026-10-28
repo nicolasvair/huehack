@@ -61,8 +61,6 @@ func decodeSensorsResponse(jsonData: Data) -> [String:Sensor]? {
 }
 
 
-
-
 func sendGETSensors(ip: String, which: String?, completion: @escaping ([String:Sensor]) -> Void) {
     guard let url = URL(string: "http://\(ip)/api/\(username)/sensors/\(which ?? "")") else {
         print("Invalid URL")
@@ -120,26 +118,6 @@ func sendGETSensors(ip: String, which: String?, completion: @escaping ([String:S
 }
 
 
-
-func checkSensorsNb() -> [String: String] {
-    var results: [String: String] = [:]
-
-    sendGETSensors(ip: ip, which: nil) { response in
-        for sensorTuple in response {
-            if sensorTuple.1.name.prefix(7) == "HUEHACK" {
-                let name = String(sensorTuple.1.name.dropFirst(10))
-                
-                if name == "TIMER" || name == "GLOBAL ONOFF" {
-                    results[name] = sensorTuple.0
-//                    print("\(name) - \(sensorTuple.0)")
-                }
-            }
-        }
-        
-//        print("Sensors nb : \(results)")
-    }
-    return results
-}
     
 
 
@@ -176,7 +154,6 @@ func sendPUTSensors(ip: String, indexSensor: Int, state: Int, completion: @escap
          }
      }.resume()
  }
-
 
 
 func sendGlobalOnOff(ip: String, indexGlobalOnOff: Int, indexTimer: Int, state: Int, completion: @escaping (String) -> Void) {

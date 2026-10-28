@@ -86,12 +86,6 @@ func updateRoomLinks(for groupIndex: String, to selection: Set<String>) -> [Stri
     return joined
 }
 
-/// Drop every link of every room in the group of `groupIndex`.
-func unlinkWholeGroup(_ groupIndex: String) {
-    for member in roomLinkGroup(groupIndex) {
-        setRoomLinks([], for: member)
-    }
-}
 
 /// Migrates the old one-master-per-room storage to symmetric links, and drops
 /// links pointing at rooms that no longer exist on the bridge.
@@ -131,6 +125,42 @@ func setRoomOffset(_ offset: Int, for groupIndex: String) {
 
 /// Hue `transitiontime` (deciseconds) the bridge uses when none is sent: 0.4 s.
 let defaultRoomFade = 4
+
+/// Interval of the HUEHACK-TIMER tick, in deciseconds.
+private let tickDeciseconds = 100.0
+/// Share of the way a fade is considered "arrived" (95 %).
+private let fadeArrivedShare = 0.95
+
+/// Time (deciseconds) a light takes to cover 95 % of the way with
+/// `transitiontime` = `sent`, given that the segment rule re-sends the same
+/// command every tick and each one restarts the fade from where the light is
+/// (linear fades, ticks exactly every 10 s).
+private func arrivalTime(sent: Double) -> Double {
+    let left = 1 - fadeArrivedShare
+    var remaining = 1.0
+    var elapsed = 0.0
+    while sent > tickDeciseconds && remaining * (1 - tickDeciseconds / sent) > left {
+        remaining *= 1 - tickDeciseconds / sent
+        elapsed += tickDeciseconds
+    }
+    return elapsed + sent * (1 - left / remaining)
+}
+
+/// `transitiontime` to send for a room fade chosen in the app (deciseconds).
+/// Up to one tick (10 s) the fade completes before the next re-send, so it is
+/// sent as is. Beyond, every tick restarts it and the light would take much
+/// longer (1 min → ~2 min 45): the value sent is shortened so the light gets
+/// within 5 % of its target after the chosen time (30 s → ~15.8 s, 1 min → ~25.4 s).
+func bridgeTransitionTime(forFade fade: Int) -> Int {
+    guard Double(fade) > tickDeciseconds else { return max(0, fade) }
+    var low = tickDeciseconds
+    var high = Double(min(fade, 65535))
+    for _ in 0..<40 {
+        let mid = (low + high) / 2
+        if arrivalTime(sent: mid) < Double(fade) { low = mid } else { high = mid }
+    }
+    return Int(low.rounded())
+}
 
 private func fadeKey(_ groupIndex: String) -> String { "huehack-fade-\(groupIndex)" }
 

@@ -189,8 +189,8 @@ let rulesSentSuccessMessage = "All rules were correctly sent"
 /// Each rule also checks the room's pause sensor (`HUEHACK-OVR-<g>`, found or
 /// created here, its status left untouched: a paused room stays paused). If that
 /// sensor cannot be obtained, the rules are posted without the pause condition.
-/// - `fade`: `transitiontime` (deciseconds) sent with every ct, remembered in the
-///   meta like the offset (`lastPushedFade`).
+/// - `fade`: duration chosen in the app (deciseconds), remembered in the meta like
+///   the offset (`lastPushedFade`); sent as `bridgeTransitionTime(forFade:)`.
 func createRulesFromlistOfSegments(listOfSegments: [Segment], indexGroup: Int, offset: Int = 0, fade: Int = defaultRoomFade, completion: @escaping (String) -> Void) {
     deleteAllHUEHACKRulesForGroup(indexGroup: indexGroup) { deleted in
         guard deleted else {
@@ -246,7 +246,7 @@ func createRulesFromlistOfSegments(listOfSegments: [Segment], indexGroup: Int, o
                                     indexTimer: indiceTimer,
                                     indexGobalOnOff: indiceGlobalOnOff,
                                     indexOverride: indiceOverride,
-                                    transitionTime: fade) { response in
+                                    transitionTime: bridgeTransitionTime(forFade: fade)) { response in
                     if !response.contains("\"success\"") {
                         failedRules.append(String(format: "%02d", indice))
                         print("HUEHACK: rule \(indice) rejected: \(response)")
@@ -373,26 +373,6 @@ func sendPOSTRuleRequest(ip: String, start: DateComponents, end: DateComponents,
  }
 
 
-
-func checkRulesIndex() -> [String: String] {
-    var results: [String: String] = [:]
-
-    sendGETRules(ip: ip, which: nil) { response in
-        guard let response = response else { return }
-        for rulesTuple in response {
-            if rulesTuple.1.name.prefix(7) == "HUEHACK" {
-                let name = String(rulesTuple.1.name.dropFirst(10))
-
-                if name == "TIMER" || name == "GLOBAL ONOFF" {
-                    results[name] = rulesTuple.0
-                    print("\(name) - \(rulesTuple.0)")
-                }
-            }
-        }
-    }
-    return results
-}
-
 /// Completes on main with the group's HUEHACK segment rules (keyed by bridge rule id),
 /// or nil if the rules could not be read.
 func getRulesAndFilterByGroup(group: Int, completion: @escaping ([String: Rule]?) -> Void) {
@@ -403,28 +383,6 @@ func getRulesAndFilterByGroup(group: Int, completion: @escaping ([String: Rule]?
         }
         let results = response.filter { parseHUEHACKRuleName($0.value.name)?.group == group }
         completion(results)
-    }
-}
-
-
-func deleteAllHUEHACKRules(completion: @escaping () -> Void) {
-    sendGETRules(ip: ip, which: nil) { response in
-        let indexesOfHUEHACKRules = (response ?? [:])
-            .filter { $0.value.name.hasPrefix("HUEHACK") }
-            .compactMap { Int($0.key) }
-
-        let group = DispatchGroup()
-
-        for index in indexesOfHUEHACKRules {
-            group.enter()
-            sendDELETERequest(ip: ip, what: TypeWhat.rules, which: index) { _ in
-                group.leave()
-            }
-        }
-
-        group.notify(queue: .main) {
-            completion()
-        }
     }
 }
 
@@ -488,10 +446,6 @@ func segmentFromRule(rule: Rule) -> Segment? {
     return Segment(name: name, hourStart: DateComponents(hour: hour, minute: minute), temp: temp, synced: .synced)
 }
 
-
-func createSegmentFor(listOfSegments: [Segment], time: DateComponents) {
-    // TO BE CONTINUED
-}
 
 func createSegmentForNow(listOfSegments: inout [Segment]) {
     let now = Calendar.current.dateComponents([.hour, .minute], from: Date())

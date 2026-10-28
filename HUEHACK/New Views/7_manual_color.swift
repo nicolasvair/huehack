@@ -2,119 +2,167 @@
 //  7_manual_color.swift
 //  HUEHACK
 //
-//  Manual colour for one room. Applying it pauses that room's circadian rules
+//  Manual light for one room. Applying it pauses that room's circadian rules
 //  (see RoomOverride.swift) until the room is switched off or "Reprendre".
-//  Colour only (hue/sat + brightness): no manual white / ct mode.
+//  Two tabs: « Blancs » (cool → warm white, sent as ct) and « Couleurs »
+//  (hue and saturation sliders, sent as hue/sat). The brightness slider is
+//  common to both and the only one that changes the brightness. Every change is shown live on the
+//  room; « Annuler » puts the room back as it was.
 //
 
 import SwiftUI
-import UIKit
 
 struct ManualColorSheet: View {
-    let roomName: String
-    let onApply: (_ hue: Int, _ sat: Int, _ bri: Int) -> Void
-
-    @State private var color: Color
-    @State private var brightness: Double  // 0…1
-    @Environment(\.dismiss) private var dismiss
-
-    /// `initialAction`: the room's current group action — its colour is used as the
-    /// starting point when the room is already in hue/sat mode.
-    init(roomName: String, initialAction: RoomAction?, onApply: @escaping (_ hue: Int, _ sat: Int, _ bri: Int) -> Void) {
-        self.roomName = roomName
-        self.onApply = onApply
-        var start = Color(hue: 0.08, saturation: 0.75, brightness: 1)
-        if let action = initialAction, action.colormode == "hs",
-           let hue = action.hue, let sat = action.sat {
-            start = Color(hue: Double(hue) / 65535, saturation: Double(sat) / 254, brightness: 1)
-        }
-        _color = State(initialValue: start)
-        _brightness = State(initialValue: min(1, max(1, Double(initialAction?.bri ?? 254)) / 254))
+    enum Mode: String, CaseIterable, Identifiable {
+        case white = "Blancs"
+        case color = "Couleurs"
+        var id: Self { self }
     }
 
-    private var values: (hue: Int, sat: Int, bri: Int) {
-        manualColorHueValues(color: color, brightness: brightness)
+    struct Output: Equatable {
+        let light: ManualLight
+        let bri: Int
+    }
+
+    let roomName: String
+    let onApply: (_ light: ManualLight, _ bri: Int) -> Void
+    /// Called once the room is back to its previous state after « Annuler ».
+    let onCancelled: () -> Void
+
+    private let groupIndex: Int
+    private let previous: RoomAction?
+    private let wasPaused: Bool
+
+    @State private var mode: Mode
+    @State private var mireds: Double                 // 153 (cool) … 500 (warm)
+    @State private var hue: Double                    // 0…1
+    @State private var saturation: Double             // 0 (white) … 1 (vivid)
+    @State private var brightness: Double             // 0…1
+    @State private var preview: LiveLightPreview<Output>
+    @Environment(\.dismiss) private var dismiss
+
+    /// `previous`: the room's current group action — the sheet opens on the matching
+    /// tab (hue/sat → Couleurs, otherwise Blancs) with its values, and « Annuler »
+    /// restores it. `wasPaused`: whether the room's circadian is already paused.
+    init(roomName: String, groupIndex: Int, previous: RoomAction?, wasPaused: Bool,
+         onApply: @escaping (_ light: ManualLight, _ bri: Int) -> Void,
+         onCancelled: @escaping () -> Void) {
+        self.roomName = roomName
+        self.groupIndex = groupIndex
+        self.previous = previous
+        self.wasPaused = wasPaused
+        self.onApply = onApply
+        self.onCancelled = onCancelled
+
+        var startMode = Mode.white
+        var startHue = 0.08, startSaturation = 0.75
+        if let action = previous, action.colormode == "hs",
+           let hue = action.hue, let sat = action.sat {
+            startMode = .color
+            startHue = Double(hue) / 65535
+            startSaturation = Double(sat) / 254
+        }
+        _mode = State(initialValue: startMode)
+        _hue = State(initialValue: startHue)
+        _saturation = State(initialValue: startSaturation)
+        _mireds = State(initialValue: Double(clampMireds(previous?.ct ?? 300)))
+        _brightness = State(initialValue: min(1, max(1, Double(previous?.bri ?? 254)) / 254))
+        _preview = State(initialValue: LiveLightPreview(
+            begin: { done in beginManualPreview(groupIndex: groupIndex) { done($0) } },
+            send: { value, previous, done in
+                sendManualPreview(groupIndex: groupIndex, light: value.light, bri: value.bri,
+                                  after: previous.map { ($0.light, $0.bri) }) { _ in done() }
+            }))
+    }
+
+    /// What gets sent.
+    private var output: Output {
+        switch mode {
+        case .white:
+            return Output(light: .white(ct: clampMireds(Int(mireds.rounded()))), bri: hueBrightness(brightness))
+        case .color:
+            let light = ManualLight.color(hue: min(65535, max(0, Int(hue * 65535))),
+                                          sat: min(254, max(0, Int(saturation * 254))))
+            return Output(light: light, bri: hueBrightness(brightness))
+        }
+    }
+
+    private var swatchColor: Color {
+        let level = max(0.15, Double(output.bri) / 254)
+        switch mode {
+        case .white:
+            return Color(mireds: mireds).opacity(level)
+        case .color:
+            return Color(hue: hue, saturation: saturation, brightness: level)
+        }
     }
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 24) {
-                Text("Couleur manuelle — \(roomName)")
-                    .font(.headline)
-                    .padding(.top)
+            ScrollView {
+                VStack(spacing: 20) {
+                    Text("Lumière manuelle — \(roomName)")
+                        .font(.headline)
+                        .padding(.top)
 
-                let v = values
-                RoundedRectangle(cornerRadius: 14)
-                    .foregroundStyle(Color(hue: Double(v.hue) / 65535,
-                                           saturation: Double(v.sat) / 254,
-                                           brightness: max(0.15, Double(v.bri) / 254)))
-                    .frame(height: 80)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14)
-                            .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
-                    )
-                    .padding(.horizontal)
-
-                ColorPicker("Couleur", selection: $color, supportsOpacity: false)
-                    .padding(.horizontal)
-
-                VStack(spacing: 8) {
-                    HStack {
-                        Image(systemName: "sun.min")
-                            .foregroundStyle(.secondary)
-                        Slider(value: $brightness, in: 0.01...1)
-                        Image(systemName: "sun.max.fill")
-                            .foregroundStyle(.secondary)
+                    Picker("Mode", selection: $mode) {
+                        ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
                     }
-                    Text("Luminosité \(Int((brightness * 100).rounded())) %")
-                        .font(.caption.monospacedDigit())
+                    .pickerStyle(.segmented)
+
+                    LightSwatch(color: swatchColor)
+
+                    switch mode {
+                    case .white:
+                        WhiteTemperaturePicker(mireds: $mireds)
+                    case .color:
+                        HueSaturationPicker(hue: $hue, saturation: $saturation)
+                    }
+
+                    BrightnessSlider(level: $brightness)
+
+                    Text("Le réglage s'affiche en direct. Le circadien de cette pièce reste en pause jusqu'à ce qu'elle soit éteinte, ou jusqu'à « Reprendre ».")
+                        .font(.caption)
                         .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
                 }
-                .padding(.horizontal)
-
-                Text("Le circadien de cette pièce sera mis en pause jusqu'à ce qu'elle soit éteinte, ou jusqu'à « Reprendre ».")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
-
-                Spacer()
+                .padding([.horizontal, .bottom])
             }
+            .onChange(of: output) { _, newValue in preview.update(newValue) }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Annuler") { dismiss() }
+                    Button("Annuler") { cancel() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Appliquer") {
-                        let v = values
-                        onApply(v.hue, v.sat, v.bri)
-                        dismiss()
-                    }
+                    Button("OK") { confirm() }
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.large])
+        // Swiping the sheet away would leave the preview on the lights.
+        .interactiveDismissDisabled()
     }
-}
 
-/// SwiftUI colour + brightness (0…1) → Hue v1 `hue` (0…65535), `sat` (0…254),
-/// `bri` (1…254). The colour's own brightness is ignored: the slider sets `bri`.
-func manualColorHueValues(color: Color, brightness: Double) -> (hue: Int, sat: Int, bri: Int) {
-    var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-    let uiColor = UIColor(color)
-    if !uiColor.getHue(&h, saturation: &s, brightness: &b, alpha: &a),
-       let srgb = CGColorSpace(name: CGColorSpace.sRGB),
-       let converted = uiColor.cgColor.converted(to: srgb, intent: .defaultIntent, options: nil) {
-        // Colours outside an RGB-compatible space: convert to sRGB first.
-        _ = UIColor(cgColor: converted).getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+    private func confirm() {
+        let out = output
+        preview.close { _ in onApply(out.light, out.bri) }
+        dismiss()
     }
-    let hue = min(65535, max(0, Int(Double(h) * 65535)))
-    let sat = min(254, max(0, Int(Double(s) * 254)))
-    let bri = min(254, max(1, Int(brightness * 254)))
-    return (hue, sat, bri)
+
+    private func cancel() {
+        let groupIndex = groupIndex, previous = previous, wasPaused = wasPaused, onCancelled = onCancelled
+        preview.close { started in
+            guard started else { return }
+            cancelManualPreview(groupIndex: groupIndex, previous: previous, wasPaused: wasPaused) { _ in
+                onCancelled()
+            }
+        }
+        dismiss()
+    }
 }
 
 #Preview {
-    ManualColorSheet(roomName: "Salon", initialAction: nil) { _, _, _ in }
+    ManualColorSheet(roomName: "Salon", groupIndex: 1, previous: nil, wasPaused: false,
+                     onApply: { _, _ in }, onCancelled: {})
 }

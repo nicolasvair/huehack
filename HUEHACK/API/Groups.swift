@@ -67,7 +67,6 @@ func decodeOneGroupResponse(jsonData: Data) -> RoomResponse? {
 }
 
 
-
 func decodeGroupsResponse(jsonData: Data) -> [String: RoomResponse]? {
 //    print(String(data: jsonData, encoding: .utf8) ?? "Invalid UTF-8 data")
 
@@ -82,7 +81,6 @@ func decodeGroupsResponse(jsonData: Data) -> [String: RoomResponse]? {
         return nil
     }
 }
-
 
 
 /// Always calls `completion` on the main queue. On any failure (invalid URL, network
@@ -133,7 +131,6 @@ func sendGETGroups(ip: String, which: String?, completion: @escaping ([String:Ro
 }
 
 
-
 func sendPOSTGroup(ip: String, name: String, lights: [String], completion: @escaping (Bool) -> Void) {
     guard let url = URL(string: "http://\(ip)/api/\(username)/groups") else { return }
     var request = URLRequest(url: url)
@@ -172,33 +169,4 @@ func sendDELETEGroup(ip: String, groupIndex: Int, completion: @escaping (Bool) -
     }.resume()
 }
 
-func sendPUTGroupRequest(ip: String, groupIndex: Int, ct: Int, completion: @escaping (String) -> Void) {
-    guard let url = URL(string: "http://\(ip)/api/\(username)/groups/\(groupIndex)/action") else {
-         print("Invalid URL")
-        return
-     }
-     
-     var request = URLRequest(url: url)
-     request.httpMethod = "PUT"
-        
-    let body = """
-                {"ct": \(ct)}
-                """
-    
-    if let jsonDataBody = body.data(using: .utf8) {
-        request.httpBody = jsonDataBody
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    }
-    
 
-
-     URLSession.shared.dataTask(with: request) { data, response2, error in
-         if let error = error {
-             print("Error: \(error.localizedDescription)")
-             completion(error.localizedDescription)
-         } else if let data = data, let responseString = String(data: data, encoding: .utf8) {
-             print("Response: \(responseString)")
-             completion(responseString)
-         }
-     }.resume()
- }

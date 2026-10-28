@@ -35,12 +35,12 @@ HUEHACK/
 │   ├── 0f_welcome.swift         # Solar segment config (functional — group picker + send to bridge wired)
 │   ├── 1_overview.swift         # Main dashboard (toggle wired to sendGlobalOnOff, reads current state on appear)
 │   ├── 2_rules.swift            # Rules list (functional — loads bridge + solar compare, update buttons wired)
-│   └── 3_settings.swift         # Settings page (functional — bridge IP, masked username, sensor indices, reset)
+│   ├── 3_settings.swift         # Settings page (functional — bridge IP, masked username, sensor indices, reset)
+│   ├── 7_manual_color.swift     # ManualColorSheet (Blancs / Couleurs, live preview)
+│   ├── 8_segment_editor.swift   # SegmentEditorSheet (segment ct, live preview)
+│   └── LightControls.swift      # Shared: GradientSlider, WhiteTemperaturePicker, HueSaturationPicker, BrightnessSlider, LightSwatch, LiveLightPreview
 │
-├── OldViews/                    # Legacy UI — currently active entry point when bridge is configured
-│   ├── SetHoursView.swift       # Main working view — group picker + segment list
-│   ├── EditSegment.swift        # Edit one segment (time + temp slider + preview)
-│   └── ...                     # Other old views
+├── Segment.swift                # Segment model + Synced + timeStr()
 │
 └── Data Layer/
     ├── DefaultValues Lists.swift # 10 preset segment configurations
@@ -65,11 +65,7 @@ enum Synced { case synced, notSynced }
 
 ## Config (done — backed by UserDefaults)
 `AppConfig.swift` is a singleton that stores `ip`, `username`, `indexGlobalOnOff`, `indexTimer` in UserDefaults.
-In `OldViews/SetHoursView.swift`, the four global vars are now computed proxies to `AppConfig.shared`:
-```swift
-var ip: String { get { AppConfig.shared.ip } set { AppConfig.shared.ip = newValue } }
-// … same for username, indexGlobalOnOff, indexTimer
-```
+`AppConfig.swift` also exposes module-level read-only aliases (`ip`, `username`, `indexGlobalOnOff`, `indexTimer`) used by the API layer.
 All API files reference these globals — no changes needed in API layer when config changes.
 
 > **DEV improvement (to merge)**: `HUEHACK-DEV/API/AppConfig.swift` prefixes UserDefaults keys with `"hue"` (e.g. `"hueIndexGlobalOnOff"` instead of `"indexGlobalOnOff"`) to avoid collisions, makes the class `final`, and adds module-level computed `var` aliases so existing API callers keep working unchanged.
@@ -84,7 +80,7 @@ All API files reference these globals — no changes needed in API layer when co
    - Local time `in` the segment's time range
    - Global on/off sensor `eq 0` (enabled)
    - Room pause sensor `HUEHACK-OVR-{g}` `eq 0` (omitted — 3 conditions — if the sensor could not be obtained)
-3. Rule action: PUT `/groups/{id}/action` with `{"ct": <mireds>, "transitiontime": <fade>}` — fade in deciseconds, per room (`roomFade`, UserDefaults `huehack-fade-<g>`, default 4 = 0.4 s, the bridge default), stored in the segment meta at push (`lastPushedFade`). Read-back only decodes `ct` (extra keys ignored). The rule re-fires every ~10 s: a fade > 10 s is restarted from the current colour on each tick (ease-out, longer than nominal)
+3. Rule action: PUT `/groups/{id}/action` with `{"ct": <mireds>, "transitiontime": <fade>}` — fade in deciseconds, per room (`roomFade`, UserDefaults `huehack-fade-<g>`, default 4 = 0.4 s, the bridge default), stored in the segment meta at push (`lastPushedFade`). Read-back only decodes `ct` (extra keys ignored). The rule re-fires every ~10 s, so a fade > 10 s is restarted from the current colour on each tick (ease-out): sent as is it would last far longer (1 min → ~2 min 45). `bridgeTransitionTime(forFade:)` (RoomLinks.swift) shortens the value actually sent so the light is within 5 % of its target after the chosen time (30 s → 158, 1 min → 254 deciseconds); ≤ 10 s is sent unchanged. UserDefaults, meta and UI keep the chosen duration.
 4. Rules are named `HUEHACK-{groupIndex:02d}-{ruleIndex:02d}` for identification
 5. Per room, two auto-resume rules (switching the room off ends the pause):
    - `HUEHACK-OVRRESET-{g:02d}`: `/groups/{g}/state/any_on dx` + `eq false` + OVR `eq 1` → OVR `{"status":2}`
@@ -224,8 +220,13 @@ UI (`2_rules.swift`) :
   `resumeCircadian` envoie aussi le fade avec le ct immédiat.
 
 ## Pause circadienne par pièce (API/RoomOverride.swift, New Views/7_manual_color.swift)
-- Bouton `paintpalette` dans la barre de `2_rules.swift` → `ManualColorSheet` (ColorPicker sans opacité + luminosité, envoi `{"on":true,"hue","sat","bri"}`). Couleur seulement, pas de mode blanc manuel.
-- `applyManualColor` : `prepareRoomOverride` (capteur OVR + règle reset + condition OVR sur les règles de la pièce) → OVR = 1 → **puis** PUT `/groups/{g}/action` (l'ordre inverse laisserait un tick écraser la couleur).
+- Bouton `paintpalette` dans la barre de `2_rules.swift` → `ManualColorSheet`, deux onglets + curseur de luminosité commun :
+  - « Blancs » : barre froid (153) → chaud (500), `ManualLight.white` → `{"on":true,"ct","bri"}` — seul onglet utile pour les lampes « Color temperature light ».
+  - « Couleurs » : curseurs Teinte et Saturation (blanc → vif), `ManualLight.color` → `{"on":true,"hue","sat","bri"}`. Seul le curseur de luminosité change `bri`.
+  - S'ouvre sur l'onglet du `colormode` actuel (`hs` → Couleurs, sinon Blancs).
+  - **Aperçu en direct** (`LiveLightPreview`, LightControls.swift) : au premier changement `beginManualPreview` (OVR = 1), puis envois au plus une fois par seconde (le bridge ne tient qu'~1 commande de groupe/s et met le reste en file : plusieurs secondes de retard), une requête à la fois, dernière valeur gagnante, et seulement les attributs qui ont changé (`sendManualPreview(after:)`). « OK » → `applyManualColor` (après la dernière requête en vol) ; « Annuler » → `cancelManualPreview` remet l'action précédente (on/off, bri, ct / hs / xy) et l'état de pause d'avant. Glisser pour fermer est désactivé.
+- Édition d'un créneau (tap sur une ligne de `2_rules.swift`) → `SegmentEditorSheet` : mêmes composants (`LightSwatch` + `WhiteTemperaturePicker`), aperçu en direct en ct seul (`sendManualPreview(bri: nil)` : ni allumage ni luminosité), Annuler / OK. À la fermeture la pièce est remise comme avant (`cancelManualPreview(restoreOnAndBrightness: false)`) ; OK garde la valeur dans `newTemp` / `tempChanged`, envoyée aux règles avec Update.
+- `applyManualColor(groupIndex:light:bri:)` : `prepareRoomOverride` (capteur OVR + règle reset + condition OVR sur les règles de la pièce) → OVR = 1 → **puis** PUT `/groups/{g}/action` (l'ordre inverse laisserait un tick écraser la couleur).
 - Bandeau « Circadien en pause — couleur manuelle » + « Reprendre » → `resumeCircadian` : pièce allumée → OVR = 0, puis si l'interrupteur global est actif, envoi immédiat de `bri` 254 + ct du segment courant (base + offset des règles poussées, `clampMireds`) ; pièce éteinte → OVR = 2 (la règle OVRRESTORE remet la luminosité au prochain allumage).
 - `ensureOverrideSensor` : GET /sensors brut (JSONSerialization), recherche par nom exact (id le plus bas si doublons), jamais de création après une lecture échouée, jamais de remise à zéro du statut, appels concurrents fusionnés par pièce.
 - Pousser un planning (Update, pièces liées) **ne change jamais** l'état de pause ; la pause reste par pièce même pour des pièces liées.

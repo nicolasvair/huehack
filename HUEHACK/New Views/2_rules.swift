@@ -29,6 +29,7 @@ struct __rules: View {
     @State private var isPaused = false            // circadian paused for this room (manual colour)
     @State private var isChangingPause = false     // a pause / resume request is in flight
     @State private var showColorSheet = false
+    @State private var editedSegment: EditedSegment?  // segment open in the editor sheet
 
     @State private var isEditing = false
     @State private var isLoading = false
@@ -99,10 +100,19 @@ struct __rules: View {
         .sheet(isPresented: $showColorSheet) {
             ManualColorSheet(
                 roomName: groups[selectedGroupIndex]?.name ?? selectedGroupIndex,
-                initialAction: groups[selectedGroupIndex]?.action
-            ) { hue, sat, bri in
-                applyManualColorToRoom(hue: hue, sat: sat, bri: bri)
-            }
+                groupIndex: Int(selectedGroupIndex) ?? 0,
+                previous: groups[selectedGroupIndex]?.action,
+                wasPaused: isPaused,
+                onApply: { light, bri in applyManualColorToRoom(light: light, bri: bri) },
+                onCancelled: { loadGroups() })
+        }
+        .sheet(item: $editedSegment) { edited in
+            SegmentEditorSheet(
+                listOfSegments: $listOfSegments,
+                index: edited.index,
+                groupIndex: Int(selectedGroupIndex) ?? 0,
+                previous: groups[selectedGroupIndex]?.action,
+                wasPaused: isPaused)
         }
         .alert("Bridge", isPresented: $showAlert) {
             Button("OK", role: .cancel) {}
@@ -289,15 +299,13 @@ struct __rules: View {
                 ForEach(listOfSegments.indices, id: \.self) { index in
                     let segment = listOfSegments[index]
                     if segment.show ?? true || isEditing {
-                        NavigationLink {
-                            EditSegment(
-                                index: index,
-                                listOfSegments: $listOfSegments,
-                                groupIndex: Int(selectedGroupIndex) ?? 0
-                            )
+                        Button {
+                            editedSegment = EditedSegment(index: index)
                         } label: {
                             segmentRow(segment: segment, index: index)
+                                .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
                     }
                 }
             }
@@ -332,10 +340,6 @@ struct __rules: View {
     }
 
     // MARK: - Segment row
-
-    private func timeStr(_ dc: DateComponents) -> String {
-        "\(dc.hour!)h\(String(format: "%02d", dc.minute!))"
-    }
 
     private func endTime(for index: Int) -> DateComponents {
         listOfSegments[(index + 1) % listOfSegments.count].hourStart
@@ -522,11 +526,11 @@ struct __rules: View {
 
     /// Pauses this room's circadian, then sends the colour. Never goes through
     /// applyUpdate: the schedule on the bridge is not touched.
-    private func applyManualColorToRoom(hue: Int, sat: Int, bri: Int) {
+    private func applyManualColorToRoom(light: ManualLight, bri: Int) {
         guard !isChangingPause, let groupIdx = Int(selectedGroupIndex) else { return }
         let requestedGroup = selectedGroupIndex
         isChangingPause = true
-        applyManualColor(groupIndex: groupIdx, hue: hue, sat: sat, bri: bri) { ok, message in
+        applyManualColor(groupIndex: groupIdx, light: light, bri: bri) { ok, message in
             isChangingPause = false
             if !ok {
                 alertMessage = message
@@ -812,6 +816,12 @@ struct LinkRoomsSheet: View {
 // MARK: - Offset editor sheet
 
 /// Room options: mireds offset (per room) and fade (shared by the link group).
+/// Identifies the segment open in `SegmentEditorSheet`.
+struct EditedSegment: Identifiable {
+    let index: Int
+    var id: Int { index }
+}
+
 struct OffsetEditorSheet: View {
     @Binding var offset: Int
     /// Hue `transitiontime`, in deciseconds.
@@ -840,7 +850,7 @@ struct OffsetEditorSheet: View {
     private var fadeCaption: String {
         var text = "Adoucit le passage d'un segment au suivant. Une transition longue s'applique aussi à l'allumage : la lampe repart de sa couleur précédente puis glisse vers la bonne teinte."
         if fade > 100 {
-            text += " Au-delà de 10 s, la transition est relancée à chaque cycle de 10 s et ralentit en fin de course."
+            text += " Au-delà de 10 s, la couleur est renvoyée toutes les 10 s : la durée envoyée au bridge est raccourcie pour que la lampe arrive (à 95 %) au bout du temps choisi, en ralentissant en fin de course."
         }
         if isLinked {
             text += "\nAppliqué à toutes les pièces liées."
